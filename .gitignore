@@ -1,0 +1,22 @@
+# Secrets / local state — never commit
+.env
+auth.json
+driver_db.json
+supabase/.temp/
+
+# Large binaries — re-download/copy, don't version
+models/
+PitWall-beta.zip
+
+# Build artifacts — regenerate with pyinstaller, don't version
+build/
+build-venv/
+dist/
+tester-package/
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store

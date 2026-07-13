@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PIT WALL — F1 25</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0A0C10; --panel: #12151C; --border: #232833; --text: #E8EAF0;
+    --dim: #7A8394; --faint: #4E5666; --purple: #9D5CFF; --green: #2EE58A;
+    --yellow: #FFD24A; --red: #FF5C5C; --neutral: #3A4152;
+  }
+  html, body { margin: 0; padding: 0; background: var(--bg); }
+  a { color: var(--purple); text-decoration: none; }
+  a:hover { color: #B98CFF; }
+  @keyframes livePulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+
+  body {
+    min-height: 100vh; color: var(--text);
+    font-family: 'Barlow Condensed', sans-serif;
+    display: flex; flex-direction: column; gap: 14px;
+    padding: 20px 24px 28px 24px; box-sizing: border-box;
+  }
+  .mono { font-family: 'IBM Plex Mono', monospace; font-variant-numeric: tabular-nums; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; }
+
+  /* Header */
+  .header { display: flex; align-items: baseline; justify-content: space-between;
+            border-bottom: 1px solid var(--border); padding-bottom: 12px; }
+  .header-left { display: flex; align-items: baseline; gap: 16px; }
+  .wordmark { font-size: 22px; font-weight: 700; letter-spacing: 3px; color: var(--text); }
+  .session-label { font-size: 15px; font-weight: 500; letter-spacing: 2px; color: var(--dim); }
+  .header-right { display: flex; align-items: center; gap: 24px; }
+  .legend { display: flex; align-items: center; gap: 14px; font-size: 13px;
+            letter-spacing: 1.5px; color: var(--dim); }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+  .live-badge { display: flex; align-items: center; gap: 8px; font-size: 14px;
+                font-weight: 600; letter-spacing: 2px; }
+  .live-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block;
+              animation: livePulse 1.4s ease-in-out infinite; }
+
+  /* Live panel */
+  .live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .lap-card { padding: 22px 26px; display: flex; flex-direction: column;
+              justify-content: space-between; gap: 10px; min-width: 0; }
+  .lap-card-top { display: flex; justify-content: space-between; align-items: baseline; }
+  .card-title { font-size: 16px; font-weight: 600; letter-spacing: 2.5px; color: var(--dim); }
+  .lap-no { font-size: 40px; font-weight: 700; line-height: 1; color: var(--text); }
+  .live-time { font-size: clamp(48px, 6.5vw, 84px); font-weight: 600; line-height: 1;
+               letter-spacing: -2px; color: #FFFFFF; }
+  .tabs { display: flex; gap: 6px; }
+  .tab { flex: 1; text-align: center; padding: 7px 0; border-radius: 5px; font-size: 15px;
+         font-weight: 700; letter-spacing: 2px; border: 1px solid var(--border); }
+  .sector-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; min-width: 0; }
+  .sector-box { padding: 18px 20px; display: flex; flex-direction: column;
+                justify-content: space-between; gap: 8px; min-width: 0; }
+  .sector-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .sector-label { font-size: clamp(13px, 1.2vw, 17px); font-weight: 700; letter-spacing: 2px;
+                  color: var(--dim); white-space: nowrap; }
+  .sector-state { font-size: 13px; font-weight: 600; letter-spacing: 1.5px; }
+  .sector-time { font-size: clamp(26px, 2.6vw, 44px); font-weight: 600; line-height: 1; }
+  .sector-foot { display: flex; justify-content: space-between; align-items: baseline; }
+  .sector-delta { font-size: 20px; font-weight: 600; }
+  .sector-best { font-size: 13px; color: var(--dim); }
+
+  /* Summary strip */
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .stat { padding: 14px 20px; display: flex; flex-direction: column; gap: 6px; }
+  .stat-title { font-size: 13px; font-weight: 600; letter-spacing: 2px; color: var(--dim); }
+  .stat-value { font-size: 28px; font-weight: 600; }
+  .stat-row { display: flex; align-items: baseline; gap: 10px; }
+  .stat-unit { font-size: 14px; letter-spacing: 1px; color: var(--dim); }
+  .tyre-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .tyre-compound { font-size: 15px; font-weight: 700; letter-spacing: 1px; }
+  .wear-row { display: flex; align-items: center; gap: 10px; }
+  .wear-track { flex: 1; height: 8px; border-radius: 4px; background: var(--border); overflow: hidden; }
+  .wear-fill { height: 100%; border-radius: 4px; }
+  .wear-label { font-size: 20px; font-weight: 600; color: var(--text); }
+  .stat-caption { font-size: 12px; letter-spacing: 1.5px; color: var(--dim); }
+
+  /* Bottom */
+  .bottom-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; flex: 1; }
+  .history { padding: 16px 20px; display: flex; flex-direction: column; gap: 2px; }
+  .block-title { font-size: 15px; font-weight: 700; letter-spacing: 2.5px; color: var(--dim); padding-bottom: 10px; }
+  .hist-cols { display: grid; grid-template-columns: 34px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 44px; gap: 6px; }
+  .hist-head { font-size: 13px; font-weight: 600; letter-spacing: 1.5px; color: var(--faint);
+               padding: 6px 8px; border-bottom: 1px solid var(--border); }
+  .hist-head div:last-child { text-align: right; }
+  .hist-row { align-items: baseline; padding: 7px 8px; border-radius: 5px; border-left: 3px solid transparent; }
+  .hist-lap { font-size: clamp(13px, 1.1vw, 16px); color: var(--dim); }
+  .hist-time { font-size: clamp(14px, 1.25vw, 18px); font-weight: 600; white-space: nowrap; }
+  .hist-sec { font-size: clamp(13px, 1.1vw, 16px); white-space: nowrap; }
+  .hist-flag { font-family: 'Barlow Condensed', sans-serif; font-size: 13px; font-weight: 700;
+               letter-spacing: 1px; text-align: right; white-space: nowrap; }
+  .empty-note { font-size: 14px; letter-spacing: 1.5px; color: var(--faint); padding: 14px 8px; }
+
+  .trend { padding: 16px 20px; display: flex; flex-direction: column; }
+  .trend-head { display: flex; justify-content: space-between; align-items: baseline; padding-bottom: 10px; }
+  .trend-status { font-size: 14px; font-weight: 600; letter-spacing: 1.5px; }
+  .trend-caption { font-size: 12px; letter-spacing: 1px; color: var(--faint); padding-bottom: 12px; }
+  .trend-bars { flex: 1; display: flex; align-items: flex-end; gap: 8px; min-height: 160px;
+                border-bottom: 1px solid var(--border); }
+  .trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px;
+               justify-content: flex-end; height: 100%; }
+  .trend-delta { font-size: 11px; }
+  .trend-bar { width: 100%; border-radius: 4px 4px 0 0; }
+  .trend-laps { display: flex; gap: 8px; padding-top: 6px; }
+  .trend-lap { flex: 1; text-align: center; font-size: 12px; color: var(--faint); }
+
+  /* Live performance summary (current-lap card) */
+  .live-stats { display: flex; gap: 18px; align-items: baseline; }
+  .live-stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+  .live-stat-label { font-size: 11px; font-weight: 600; letter-spacing: 1.5px; color: var(--faint); }
+  .live-stat-value { font-size: 22px; font-weight: 600; }
+  .pace-chip { font-family: 'Barlow Condensed', sans-serif; font-size: 14px;
+               font-weight: 700; letter-spacing: 2px; padding: 3px 10px;
+               border-radius: 4px; border: 1px solid var(--border); }
+  .advice { font-family: 'Barlow Condensed', sans-serif; font-size: 19px;
+            font-weight: 700; letter-spacing: 1.5px; color: var(--purple);
+            background: #2A2138; border: 1px solid #4A3568; border-radius: 6px;
+            padding: 9px 14px; text-align: center; }
+  .predict { display: flex; gap: 16px; font-size: 12px; letter-spacing: 1.5px;
+             color: var(--dim); }
+  .predict .mono { color: var(--text); }
+
+  /* Sector stories */
+  .story { display: flex; flex-direction: column; gap: 2px; font-family:
+           'Barlow Condensed', sans-serif; font-size: 13px; letter-spacing: 0.8px;
+           min-height: 20px; }
+  .story-lost { color: var(--yellow); }
+  .story-gain { color: var(--green); }
+
+  /* Driver profile chips */
+  .chips { display: flex; gap: 8px; }
+  .chip { font-size: 12px; font-weight: 700; letter-spacing: 1.5px;
+          color: var(--dim); border: 1px solid var(--border); border-radius: 4px;
+          padding: 3px 9px; background: var(--panel); }
+
+  /* Trend overlays */
+  .trend-bar.invalid { background: repeating-linear-gradient(45deg,
+      var(--neutral) 0 4px, #262b36 4px 8px) !important; }
+  .trend-flag-dot { width: 6px; height: 6px; border-radius: 50%;
+                    background: var(--yellow); margin-bottom: 2px; }
+
+  /* Auth gate (login / paywall) */
+  .auth-overlay { position: fixed; inset: 0; background: rgba(4,5,8,0.92);
+                  display: none; align-items: center; justify-content: center; z-index: 100; }
+  .auth-overlay.open { display: flex; }
+  .auth-card { background: var(--panel); border: 1px solid #4A3568; border-radius: 12px;
+               padding: 28px 32px; width: min(400px, 90vw); display: flex;
+               flex-direction: column; gap: 14px; }
+  .auth-title { font-size: 20px; font-weight: 700; letter-spacing: 3px; color: var(--text); }
+  .auth-sub { font-size: 14px; letter-spacing: 1px; color: var(--dim); line-height: 1.5; }
+  .auth-input { font-family: 'IBM Plex Mono', monospace; font-size: 14px;
+                background: var(--bg); color: var(--text); border: 1px solid var(--border);
+                border-radius: 6px; padding: 10px 12px; width: 100%; box-sizing: border-box; }
+  .auth-input:focus { outline: none; border-color: #4A3568; }
+  .auth-btn { font-family: 'Barlow Condensed', sans-serif; font-size: 15px;
+              font-weight: 700; letter-spacing: 2px; border-radius: 6px;
+              padding: 10px 0; width: 100%; cursor: pointer;
+              background: #2A2138; color: var(--purple); border: 1px solid #4A3568; }
+  .auth-btn.primary { background: var(--purple); color: #16101F; border-color: var(--purple); }
+  .auth-btn:hover { filter: brightness(1.15); }
+  .auth-msg { font-size: 13px; letter-spacing: 0.5px; color: var(--yellow);
+              min-height: 16px; line-height: 1.4; }
+  .auth-row { display: flex; gap: 10px; }
+  .auth-meta { font-family: 'IBM Plex Mono', monospace; font-size: 13px; color: var(--dim); }
+  .auth-price { font-size: 34px; font-weight: 700; color: var(--text); }
+  .auth-price small { font-size: 15px; color: var(--dim); font-weight: 500; }
+  .account-chip { display: flex; align-items: center; gap: 10px; font-size: 12px;
+                  letter-spacing: 1px; color: var(--dim); }
+  .account-chip button { font-family: inherit; font-size: 12px; font-weight: 700;
+                         letter-spacing: 1px; color: var(--faint); background: none;
+                         border: none; cursor: pointer; }
+  .account-chip button:hover { color: var(--text); }
+
+  /* Recap button + modal */
+  .recap-btn { font-family: 'Barlow Condensed', sans-serif; font-size: 14px;
+               font-weight: 700; letter-spacing: 2px; color: var(--purple);
+               background: #2A2138; border: 1px solid #4A3568; border-radius: 5px;
+               padding: 6px 16px; cursor: pointer; }
+  .recap-btn:hover { background: #352A47; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(4,5,8,0.75);
+                   display: none; align-items: center; justify-content: center; z-index: 50; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid #4A3568; border-radius: 12px;
+           padding: 24px 28px; width: min(480px, 90vw); display: flex;
+           flex-direction: column; gap: 14px; }
+  .modal-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .modal-title { font-size: 17px; font-weight: 700; letter-spacing: 2.5px; color: var(--text); }
+  .modal-close { font-size: 14px; font-weight: 600; letter-spacing: 1px; color: var(--dim);
+                 background: none; border: none; cursor: pointer; font-family: inherit; }
+  .modal-close:hover { color: var(--text); }
+  .recap-row { display: flex; justify-content: space-between; align-items: baseline;
+               border-bottom: 1px solid var(--border); padding: 8px 0; }
+  .recap-label { font-size: 13px; font-weight: 600; letter-spacing: 2px; color: var(--dim); }
+  .recap-value { font-size: 22px; font-weight: 600; }
+  .recap-summary { font-family: 'Barlow Condensed', sans-serif; font-size: 16px;
+                   letter-spacing: 0.5px; color: var(--text); line-height: 1.45; }
+
+  /* View tabs */
+  .view-tabs { display: flex; gap: 6px; }
+  .view-tab { font-family: 'Barlow Condensed', sans-serif; font-size: 14px;
+              font-weight: 700; letter-spacing: 2px; color: var(--faint);
+              background: transparent; border: 1px solid var(--border);
+              border-radius: 5px; padding: 6px 14px; cursor: pointer; }
+  .view-tab.active { color: var(--purple); background: #2A2138;
+                     border-color: #4A3568; }
+
+  /* Map-only view: fullscreen map for a second monitor */
+  body.view-map .live-grid, body.view-map .summary-grid,
+  body.view-map .chips, body.view-map .history, body.view-map .trend
+    { display: none !important; }
+  body.view-map .bottom-grid { display: flex; flex: 1; }
+  body.view-map .track-map { display: flex !important; flex: 1;
+                             height: calc(100vh - 110px); }
+  body.view-map .track-map svg { min-height: 0; }
+
+  /* Track map */
+  .track-map { padding: 16px 20px; display: flex; flex-direction: column; }
+  .track-map svg { flex: 1; width: 100%; min-height: 200px; }
+  .map-weak { fill: none; stroke-width: 3; opacity: 0.9; }
+  .map-car { fill: var(--red); stroke: #fff; stroke-width: 1.5;
+             transition: transform 0.22s linear; }
+  .map-weak-list { display: flex; flex-wrap: wrap; gap: 8px; padding-top: 10px; }
+  .weak-item { font-family: 'Barlow Condensed', sans-serif; font-size: 13px;
+               font-weight: 600; letter-spacing: 1px; padding: 3px 10px;
+               border-radius: 4px; border: 1px solid; }
+  @keyframes weakPulse { 0%, 100% { opacity: 0.9; } 50% { opacity: 0.35; } }
+  .map-weak.red { animation: weakPulse 1.6s ease-in-out infinite; }
+  .map-path { fill: none; stroke: var(--neutral); stroke-width: 7;
+              stroke-linecap: round; stroke-linejoin: round; }
+  .map-line { fill: none; stroke: var(--panel); stroke-width: 3;
+              stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 1 10; }
+  .map-corner { fill: #2A2138; stroke: #4A3568; stroke-width: 1; }
+  .map-num { fill: var(--purple); font-family: 'IBM Plex Mono', monospace;
+             font-size: 9px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+  .map-sf { fill: var(--red); font-family: 'Barlow Condensed', sans-serif;
+            font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="header-left">
+      <div class="wordmark">PIT WALL</div>
+      <div class="session-label" id="sessionLabel">F1 25</div>
+      <div class="view-tabs">
+        <button class="view-tab active" id="tabDash">DASHBOARD</button>
+        <button class="view-tab" id="tabMap">TRACK MAP</button>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="legend">
+        <span><span class="swatch" style="background: var(--purple)"></span>SESSION BEST</span>
+        <span><span class="swatch" style="background: var(--green)"></span>ON PACE</span>
+        <span><span class="swatch" style="background: var(--yellow)"></span>OFF PACE</span>
+      </div>
+      <div class="live-badge" id="liveBadge">
+        <span class="live-dot" id="liveDot"></span><span id="liveLabel">NO SIGNAL</span>
+      </div>
+      <span class="account-chip" id="accountChip" style="display: none;">
+        <span id="accountEmail"></span>
+        <button id="accountLogout">LOGOUT</button>
+      </span>
+      <button class="recap-btn" id="recapBtn">RECAP</button>
+    </div>
+  </div>
+
+  <div class="auth-overlay" id="authGate">
+    <div class="auth-card" id="authLogin" style="display: none;">
+      <div class="auth-title">PIT WALL</div>
+      <div class="auth-sub">Log in or create an account to use the race
+        engineer. A subscription is required.</div>
+      <input class="auth-input" id="authEmail" type="email" placeholder="email" autocomplete="email">
+      <input class="auth-input" id="authPassword" type="password" placeholder="password" autocomplete="current-password">
+      <div class="auth-row">
+        <button class="auth-btn primary" id="btnLogin">LOG IN</button>
+        <button class="auth-btn" id="btnSignup">SIGN UP</button>
+      </div>
+      <div class="auth-msg" id="authMsg"></div>
+    </div>
+    <div class="auth-card" id="authPaywall" style="display: none;">
+      <div class="auth-title">SUBSCRIBE</div>
+      <div class="auth-meta" id="paywallEmail"></div>
+      <div class="auth-meta">Subscription: <span id="paywallStatus">inactive</span></div>
+      <div class="auth-price">$4.99<small> / month</small></div>
+      <div class="auth-sub">Live telemetry, voice race engineer, corner
+        coaching, session history — everything, one plan.</div>
+      <button class="auth-btn primary" id="btnSubscribe">SUBSCRIBE WITH STRIPE</button>
+      <div class="auth-row">
+        <button class="auth-btn" id="btnRefreshStatus">REFRESH STATUS</button>
+        <button class="auth-btn" id="btnPaywallLogout">LOG OUT</button>
+      </div>
+      <div class="auth-msg" id="paywallMsg"></div>
+    </div>
+  </div>
+
+  <div class="chips" id="profileChips" style="display: none;"></div>
+
+  <div class="live-grid">
+    <div class="panel lap-card">
+      <div class="lap-card-top">
+        <div class="card-title">CURRENT LAP</div>
+        <div class="lap-no" id="lapNo">–</div>
+      </div>
+      <div class="mono live-time" id="liveTime">0:00.000</div>
+      <div class="live-stats">
+        <div class="live-stat">
+          <div class="live-stat-label">Δ BEST</div>
+          <div class="mono live-stat-value" id="liveDelta">––</div>
+        </div>
+        <div class="live-stat">
+          <div class="live-stat-label">PROJECTED</div>
+          <div class="mono live-stat-value" id="projLap">–:––.–</div>
+        </div>
+        <div class="live-stat">
+          <div class="live-stat-label">PACE</div>
+          <div><span class="pace-chip" id="paceChip">––</span></div>
+        </div>
+      </div>
+      <div class="advice" id="adviceLine" style="display: none;"></div>
+      <div class="tabs" id="sectorTabs"></div>
+      <div class="predict" id="predictRow" style="visibility: hidden;">
+        <span>EXPECTED <span class="mono" id="expectedLap">–</span></span>
+        <span>PB CHANCE <span class="mono" id="pbChance">–</span> <span style="color: var(--faint)">EST</span></span>
+      </div>
+    </div>
+    <div class="sector-grid" id="sectorBoxes"></div>
+  </div>
+
+  <div class="summary-grid">
+    <div class="panel stat">
+      <div class="stat-title">BEST LAP</div>
+      <div class="mono stat-value" style="color: var(--purple)" id="bestLap">–:––.–––</div>
+    </div>
+    <div class="panel stat">
+      <div class="stat-title">THEORETICAL BEST</div>
+      <div class="mono stat-value" id="theoreticalBest">–:––.–––</div>
+    </div>
+    <div class="panel stat">
+      <div class="tyre-head">
+        <div class="stat-title">TYRE</div>
+        <div class="tyre-compound" id="tyreCompound">–</div>
+      </div>
+      <div class="wear-row">
+        <div class="wear-track"><div class="wear-fill" id="wearFill" style="width: 0%"></div></div>
+        <div class="mono wear-label" id="wearLabel">––</div>
+      </div>
+      <div class="stat-caption">WEAR</div>
+    </div>
+    <div class="panel stat">
+      <div class="stat-title">FUEL</div>
+      <div class="stat-row">
+        <div class="mono stat-value" id="fuelKg">––.–</div>
+        <div class="stat-unit">KG · <span id="fuelLaps">––</span> LAPS</div>
+      </div>
+    </div>
+    <div class="panel stat">
+      <div class="stat-title">CONSISTENCY</div>
+      <div class="stat-row">
+        <div class="mono stat-value" id="consistency">±–.–––</div>
+        <div class="stat-unit">σ LAST 5</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="bottom-grid">
+    <div class="panel history">
+      <div class="block-title">LAP HISTORY</div>
+      <div class="hist-cols hist-head">
+        <div>LAP</div><div>TIME</div><div>S1</div><div>S2</div><div>S3</div><div>FLAG</div>
+      </div>
+      <div id="historyRows"><div class="empty-note">AWAITING FIRST FLYING LAP</div></div>
+    </div>
+    <div class="panel trend">
+      <div class="trend-head">
+        <div class="block-title" style="padding-bottom: 0">PACE TREND</div>
+        <div class="trend-status" id="trendLabel" style="color: var(--dim)">▬ STABLE</div>
+      </div>
+      <div class="trend-caption">GAP TO SESSION BEST PER LAP</div>
+      <div class="trend-bars" id="trendBars"></div>
+      <div class="trend-laps" id="trendLaps"></div>
+    </div>
+    <div class="panel track-map" id="trackMapPanel" style="display: none;">
+      <div class="block-title" id="trackMapTitle">TRACK MAP</div>
+      <svg id="trackMapSvg" viewBox="0 0 420 300" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="map-weak-list" id="mapWeakList"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="recapOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">SESSION RECAP</div>
+        <button class="modal-close" id="recapClose">CLOSE ✕</button>
+      </div>
+      <div id="recapBody"></div>
+      <div class="recap-summary" id="recapSummary"></div>
+    </div>
+  </div>
+
+<script>
+const C = {
+  purple: '#9D5CFF', green: '#2EE58A', yellow: '#FFD24A', red: '#FF5C5C',
+  text: '#E8EAF0', dim: '#7A8394', faint: '#4E5666', border: '#232833',
+  neutral: '#3A4152',
+};
+const TYRE_COLORS = { SOFT: C.red, MEDIUM: C.yellow, HARD: C.text, INTER: C.green, WET: '#5CA9FF' };
+const DASH = '––.–––';
+
+let state = null;
+let receivedAt = 0;   // performance.now() when state arrived
+let renderedTrackId = null;
+
+// Stylised circuit outlines (not to scale) with key corner numbers.
+// Adding a track = one more entry: name, an SVG path, corner markers.
+const TRACK_MAPS = {
+  10: { // Spa-Francorchamps
+    name: 'SPA-FRANCORCHAMPS',
+    path: 'M 150 52 L 172 46 Q 192 40 190 56 Q 188 68 172 66 L 152 76 Q 138 82 144 94 Q 152 106 170 104 L 330 122 Q 352 125 348 140 L 340 152 Q 334 160 338 168 Q 346 178 338 188 Q 328 198 312 196 L 290 202 Q 262 210 252 216 L 224 224 Q 210 226 202 232 Q 190 240 176 238 Q 158 236 152 224 L 118 130 Q 112 112 116 98 L 110 88 Q 104 76 116 72 Q 128 68 130 78 L 150 52 Z',
+    sf: [138, 46],
+    corners: [
+      [1, 196, 50], [2, 138, 96], [5, 352, 118], [7, 344, 158],
+      [8, 348, 186], [10, 288, 212], [12, 222, 234], [15, 168, 246],
+      [16, 118, 168], [18, 102, 78],
+    ],
+  },
+  7: { // Silverstone
+    name: 'SILVERSTONE',
+    path: 'M 120 258 L 250 258 Q 268 256 274 246 Q 280 234 292 232 Q 304 230 302 220 Q 300 208 288 208 Q 278 208 276 204 L 180 200 Q 166 202 162 192 Q 154 176 168 170 Q 180 166 186 172 L 240 120 Q 250 112 260 116 Q 272 122 280 114 Q 288 106 298 112 Q 308 118 316 110 Q 322 104 330 108 L 372 176 Q 378 188 368 196 Q 356 206 350 216 Q 344 228 330 234 Q 310 244 290 252 Q 272 257 250 258',
+    sf: [128, 250],
+    corners: [
+      [1, 282, 246], [3, 314, 222], [4, 288, 194], [6, 150, 196],
+      [7, 156, 164], [9, 246, 106], [11, 287, 96], [13, 326, 96],
+      [15, 382, 188], [16, 358, 222], [17, 306, 254],
+    ],
+  },
+};
+
+const $ = (id) => document.getElementById(id);
+
+function fmtLap(ms) {
+  const m = Math.floor(ms / 60000);
+  const s = (ms % 60000) / 1000;
+  return m + ':' + (s < 10 ? '0' : '') + s.toFixed(3);
+}
+function fmtSec(ms) { return (ms / 1000).toFixed(3); }
+function fmtDelta(dMs) { return (dMs >= 0 ? '+' : '−') + Math.abs(dMs / 1000).toFixed(3); }
+function paceColor(t, best) {
+  if (t <= best) return C.purple;
+  if (t <= best + 150) return C.green;
+  return C.yellow;
+}
+function lapTime(l) { return l.sectors[0] + l.sectors[1] + l.sectors[2]; }
+function times_argmin(arr) {
+  let best = 0;
+  for (let i = 1; i < arr.length; i++) if (arr[i] < arr[best]) best = i;
+  return best;
+}
+function bestSectors(laps) {
+  return [0, 1, 2].map((i) => Math.min.apply(null, laps.map((l) => l.sectors[i])));
+}
+
+function displayedLapMs() {
+  if (!state) return 0;
+  const drift = state.live ? performance.now() - receivedAt : 0;
+  return Math.max(0, state.currentLapMs + drift);
+}
+
+let blSectors = null;  // best lap's sector splits, set in render()
+
+function tickClock() {
+  if (!state) return;
+  const ms = displayedLapMs();
+  $('liveTime').textContent = fmtLap(ms);
+  const cumBefore = [0, state.s1Ms, state.s1Ms + state.s2Ms];
+  const cur = state.currentSector;
+  const liveSec = $('secTime' + cur);
+  const liveElapsed = Math.max(0, ms - cumBefore[cur]);
+  if (liveSec) liveSec.textContent = fmtSec(liveElapsed);
+
+  // Live delta to best lap + projected lap (banked sectors + best-lap
+  // pace for the rest; the live sector only counts once it overruns).
+  if (!blSectors) return;
+  const partials = [state.s1Ms, state.s2Ms, 0];
+  let delta = 0, projected = 0;
+  for (let i = 0; i < 3; i++) {
+    if (i < cur && partials[i] > 0) {
+      delta += partials[i] - blSectors[i];
+      projected += partials[i];
+    } else if (i === cur) {
+      delta += Math.max(0, liveElapsed - blSectors[i]);
+      projected += Math.max(liveElapsed, blSectors[i]);
+    } else {
+      projected += blSectors[i];
+    }
+  }
+  const dEl = $('liveDelta');
+  dEl.textContent = (delta > 0 ? '▼ +' : '▲ −') + Math.abs(delta / 1000).toFixed(3);
+  dEl.style.color = delta <= 0 ? C.purple : delta <= 300 ? C.green : C.yellow;
+  $('projLap').textContent = fmtLap(Math.round(projected));
+  const chip = $('paceChip');
+  const [label, color] = delta <= 0 ? ['ATTACK', C.purple]
+    : delta <= 300 ? ['GOOD', C.green] : ['BACK OFF', C.yellow];
+  chip.textContent = label;
+  chip.style.color = color;
+  chip.style.borderColor = color;
+}
+
+function render() {
+  const s = state;
+  if (!s) return;
+  const laps = s.laps;
+  const hasLaps = laps.length > 0;
+  const bests = hasLaps ? bestSectors(laps) : null;
+  const lapTimes = laps.map(lapTime);
+  const bestLapT = hasLaps ? Math.min.apply(null, lapTimes) : null;
+
+  // Header
+  $('sessionLabel').textContent = s.sessionLabel;
+  renderTrackMap(s.trackId);
+  updateMapOverlays(s);
+  const badge = s.live ? { label: 'LIVE', color: C.red }
+    : s.hasSignal ? { label: 'PAUSED', color: C.yellow }
+    : { label: 'NO SIGNAL', color: C.faint };
+  $('liveLabel').textContent = badge.label;
+  $('liveBadge').style.color = badge.color;
+  $('liveDot').style.background = badge.color;
+
+  // Current lap card
+  $('lapNo').textContent = s.lapNo ?? '–';
+  const cur = s.currentSector;
+  $('sectorTabs').innerHTML = [0, 1, 2].map((i) => {
+    const active = i === cur;
+    return `<div class="tab" style="background:${active ? '#2A2138' : 'transparent'};
+      color:${active ? C.purple : C.faint};
+      border-color:${active ? '#4A3568' : C.border}">S${i + 1}</div>`;
+  }).join('');
+
+  // Sector boxes
+  const partials = [s.s1Ms, s.s2Ms, 0];
+  const cumBefore = [0, s.s1Ms, s.s1Ms + s.s2Ms];
+  $('sectorBoxes').innerHTML = [0, 1, 2].map((i) => {
+    const done = i < cur && partials[i] > 0;
+    const live = i === cur;
+    const bestTxt = bests ? fmtSec(bests[i]) : DASH;
+    let time = DASH, timeColor = C.faint, delta = '', deltaColor = C.dim,
+        stateLabel = '', stateColor = C.dim, border = C.border, topBar = 'transparent';
+    if (done) {
+      const t = partials[i];
+      const col = bests ? paceColor(t, bests[i]) : C.text;
+      time = fmtSec(t); timeColor = col;
+      if (bests) { delta = fmtDelta(t - bests[i]); deltaColor = col; }
+      stateLabel = 'COMPLETE'; stateColor = C.faint; topBar = col;
+    } else if (live) {
+      time = fmtSec(Math.max(0, displayedLapMs() - cumBefore[i]));
+      timeColor = C.text;
+      stateLabel = s.live ? 'LIVE' : 'HOLD';
+      stateColor = s.live ? C.red : C.yellow;
+      border = C.neutral; topBar = C.neutral;
+    }
+    const story = (s.sectorStories || {})[i + 1];
+    let storyHtml = '';
+    if (story) {
+      const stale = story.lap !== (s.lapNo ?? story.lap) ? ' style="opacity:0.45"' : '';
+      storyHtml = `<div class="story"${stale}>` +
+        story.lost.map((b) => `<div class="story-lost">− ${b.label} ${b.what}</div>`).join('') +
+        story.gained.map((b) => `<div class="story-gain">+ ${b.label} ${b.what}</div>`).join('') +
+        `</div>`;
+    }
+    return `<div class="panel sector-box" style="border-color:${border}; box-shadow: inset 0 3px 0 ${topBar}">
+      <div class="sector-head">
+        <div class="sector-label">SECTOR ${i + 1}</div>
+        <div class="sector-state" style="color:${stateColor}">${stateLabel}</div>
+      </div>
+      <div class="mono sector-time" id="secTime${i}" style="color:${timeColor}">${time}</div>
+      <div class="sector-foot">
+        <div class="mono sector-delta" style="color:${deltaColor}">${delta}</div>
+        <div class="mono sector-best">BEST ${bestTxt}</div>
+      </div>
+      ${storyHtml}
+    </div>`;
+  }).join('');
+
+  // Live performance summary inputs + advice centrepiece + predictions
+  if (hasLaps) {
+    const bl = laps[times_argmin(lapTimes)];
+    blSectors = bl.sectors;
+  } else {
+    blSectors = null;
+    $('liveDelta').textContent = '––';
+    $('projLap').textContent = '–:––.–';
+    $('paceChip').textContent = '––';
+  }
+  const adviceEl = $('adviceLine');
+  if (s.advice) {
+    adviceEl.textContent = s.advice.toUpperCase();
+    adviceEl.style.display = 'block';
+  } else {
+    adviceEl.style.display = 'none';
+  }
+  const cleanTimes = hasLaps
+    ? lapTimes.filter((t) => t - bestLapT < 5000) : [];
+  if (cleanTimes.length >= 2) {
+    const recent = cleanTimes.slice(-3).sort((a, b) => a - b);
+    const expected = recent[Math.floor(recent.length / 2)];
+    const pb = Math.max(5, Math.min(90, Math.round(60 - (expected - bestLapT) / 15)));
+    $('expectedLap').textContent = fmtLap(expected);
+    $('pbChance').textContent = pb + '%';
+    $('predictRow').style.visibility = 'visible';
+  } else {
+    $('predictRow').style.visibility = 'hidden';
+  }
+  const chipsEl = $('profileChips');
+  if (s.profile && s.profile.length) {
+    chipsEl.innerHTML = s.profile.map((c) => `<span class="chip">${c}</span>`).join('');
+    chipsEl.style.display = 'flex';
+  } else {
+    chipsEl.style.display = 'none';
+  }
+
+  // Summary strip
+  $('bestLap').textContent = bestLapT !== null ? fmtLap(bestLapT) : '–:––.–––';
+  $('theoreticalBest').textContent = bests ? fmtLap(bests[0] + bests[1] + bests[2]) : '–:––.–––';
+
+  const compound = s.compound ?? '–';
+  $('tyreCompound').textContent = compound;
+  $('tyreCompound').style.color = TYRE_COLORS[compound] || C.text;
+  if (s.wearPct !== null) {
+    const wear = Math.round(s.wearPct);
+    $('wearFill').style.width = Math.min(100, wear) + '%';
+    $('wearFill').style.background = wear > 70 ? C.red : wear > 45 ? C.yellow : C.green;
+    $('wearLabel').textContent = wear + '%';
+  } else {
+    $('wearFill').style.width = '0%';
+    $('wearLabel').textContent = '––';
+  }
+  $('fuelKg').textContent = s.fuelKg !== null ? s.fuelKg.toFixed(1) : '––.–';
+  $('fuelLaps').textContent = s.fuelLaps !== null ? s.fuelLaps.toFixed(1) : '––';
+
+  if (lapTimes.length >= 2) {
+    const last5 = lapTimes.slice(-5);
+    const mean = last5.reduce((a, b) => a + b, 0) / last5.length;
+    const sd = Math.sqrt(last5.reduce((a, b) => a + (b - mean) ** 2, 0) / last5.length) / 1000;
+    $('consistency').textContent = '±' + sd.toFixed(3);
+    $('consistency').style.color = sd < 0.5 ? C.green : sd < 1.0 ? C.yellow : C.red;
+  } else {
+    $('consistency').textContent = '±–.–––';
+    $('consistency').style.color = C.text;
+  }
+
+  // Lap history (newest first)
+  if (hasLaps) {
+    const pbSet = new Set();
+    let runBest = Infinity;
+    laps.forEach((l) => { const t = lapTime(l); if (t < runBest) { runBest = t; pbSet.add(l.lap); } });
+    $('historyRows').innerHTML = laps.slice().reverse().slice(0, 10).map((l) => {
+      const t = lapTime(l);
+      const isBest = t === bestLapT;
+      const isPB = pbSet.has(l.lap);
+      const sc = (i) => (l.sectors[i] === bests[i] ? C.purple : C.text);
+      const timeColor = isBest ? C.purple : isPB ? C.green : C.text;
+      return `<div class="mono hist-cols hist-row" style="background:${isBest ? 'rgba(157,92,255,0.08)' : 'transparent'};
+        border-left-color:${isBest ? C.purple : isPB ? C.green : 'transparent'}">
+        <div class="hist-lap">${String(l.lap).padStart(2, '0')}</div>
+        <div class="hist-time" style="color:${timeColor}">${fmtLap(t)}</div>
+        <div class="hist-sec" style="color:${sc(0)}">${fmtSec(l.sectors[0])}</div>
+        <div class="hist-sec" style="color:${sc(1)}">${fmtSec(l.sectors[1])}</div>
+        <div class="hist-sec" style="color:${sc(2)}">${fmtSec(l.sectors[2])}</div>
+        <div class="hist-flag" style="color:${isBest ? C.purple : C.green}">${isBest ? 'BEST' : isPB ? 'PB' : ''}</div>
+      </div>`;
+    }).join('');
+  } else {
+    $('historyRows').innerHTML = '<div class="empty-note">AWAITING FIRST FLYING LAP</div>';
+  }
+
+  // Pace trend, with overlays: striped = deleted lap, dot = yellow flag,
+  // hover shows tyre wear and fuel so correlations are visible.
+  const recent = laps.slice(-10);
+  $('trendBars').innerHTML = recent.map((l) => {
+    const d = (lapTime(l) - bestLapT) / 1000;
+    const h = Math.max(6, Math.min(120, 6 + d * 16));
+    const color = d <= 0 ? C.purple : d <= 0.6 ? C.green : C.neutral;
+    const label = d <= 0 ? 'BEST' : '+' + d.toFixed(2);
+    const tip = [`lap ${l.lap}: ${fmtLap(lapTime(l))}`];
+    if (l.wear != null) tip.push(`wear ${Math.round(l.wear)}%`);
+    if (l.fuel != null) tip.push(`fuel ${l.fuel.toFixed(1)}kg`);
+    if (l.invalid) tip.push('DELETED');
+    if (l.yellow) tip.push('YELLOW FLAG');
+    return `<div class="trend-col" title="${tip.join(' · ')}">
+      <div class="mono trend-delta" style="color:${d <= 0 ? C.purple : C.faint}">${label}</div>
+      ${l.yellow ? '<div class="trend-flag-dot"></div>' : ''}
+      <div class="trend-bar${l.invalid ? ' invalid' : ''}" style="background:${color}; height:${h}px"></div>
+    </div>`;
+  }).join('');
+  $('trendLaps').innerHTML = recent.map((l) =>
+    `<div class="mono trend-lap">${l.lap}</div>`).join('');
+  if (recent.length >= 4) {
+    const half = Math.floor(recent.length / 2);
+    const avg = (arr) => arr.reduce((a, l) => a + lapTime(l), 0) / arr.length;
+    const drift = (avg(recent.slice(half)) - avg(recent.slice(0, half))) / 1000;
+    const [label, color] = drift < -0.1 ? ['▲ IMPROVING', C.green]
+      : drift > 0.25 ? ['▼ FALLING OFF', C.yellow] : ['▬ STABLE', C.dim];
+    $('trendLabel').textContent = label;
+    $('trendLabel').style.color = color;
+  } else {
+    $('trendLabel').textContent = '▬ STABLE';
+    $('trendLabel').style.color = C.dim;
+  }
+}
+
+function renderTrackMap(trackId) {
+  if (trackId === renderedTrackId) return;
+  renderedTrackId = trackId;
+  renderedWeak = null;
+  const map = TRACK_MAPS[trackId];
+  const panel = $('trackMapPanel');
+  if (!map) {
+    panel.style.display = 'none';  // map-only view forces it back on
+    $('trackMapTitle').textContent = trackId == null
+      ? 'TRACK MAP — WAITING FOR A SESSION'
+      : 'TRACK MAP — NO OUTLINE FOR THIS CIRCUIT YET';
+    $('trackMapSvg').innerHTML = '';
+    $('mapWeakList').innerHTML = '<span class="empty-note">' +
+      (trackId == null
+        ? 'GET ON TRACK IN F1 25 — THE MAP APPEARS WITH THE SESSION'
+        : 'CIRCUIT OUTLINES EXIST FOR SPA AND SILVERSTONE SO FAR') + '</span>';
+    return;
+  }
+  panel.style.display = 'flex';
+  $('trackMapTitle').textContent = map.name;
+  $('trackMapSvg').innerHTML =
+    `<path class="map-path" id="mapPath" d="${map.path}"/>` +
+    `<path class="map-line" d="${map.path}"/>` +
+    `<text class="map-sf" x="${map.sf[0] - 22}" y="${map.sf[1]}">S/F</text>` +
+    map.corners.map(([n, x, y]) =>
+      `<circle class="map-corner" cx="${x}" cy="${y}" r="8"/>` +
+      `<text class="map-num" x="${x}" y="${y + 0.5}">${n}</text>`).join('') +
+    `<g id="mapWeakLayer"></g>` +
+    `<circle class="map-car" id="mapCar" cx="0" cy="0" r="5" style="display:none"/>`;
+}
+
+// Point on the drawn circuit for a lap distance (fraction of path length —
+// the outlines are stylised, so this is approximate by design).
+function pointForDistance(m, trackLength) {
+  const path = document.getElementById('mapPath');
+  if (!path || !trackLength) return null;
+  const frac = Math.min(0.999, Math.max(0, m / trackLength));
+  return path.getPointAtLength(frac * path.getTotalLength());
+}
+
+let renderedWeak = null;
+function updateMapOverlays(s) {
+  const map = TRACK_MAPS[s.trackId];
+  if (!map) return;
+  // Weak-turn rings: red = the big one, amber = the rest.
+  const weakJson = JSON.stringify(s.weakTurns || []);
+  if (weakJson !== renderedWeak) {
+    renderedWeak = weakJson;
+    const layer = document.getElementById('mapWeakLayer');
+    if (layer) {
+      layer.innerHTML = (s.weakTurns || []).map((w) => {
+        let x = null, y = null;
+        const m = /^T(\d+)$/.exec(w.label);
+        const corner = m && map.corners.find(([n]) => n === +m[1]);
+        if (corner) { x = corner[1]; y = corner[2]; }
+        else {
+          const p = pointForDistance(w.onsetM, s.trackLength);
+          if (p) { x = p.x; y = p.y; }
+        }
+        if (x === null) return '';
+        const color = w.severity === 'red' ? C.red : C.yellow;
+        return `<circle class="map-weak ${w.severity}" cx="${x}" cy="${y}"
+                 r="13" stroke="${color}"/>`;
+      }).join('');
+    }
+    $('mapWeakList').innerHTML = (s.weakTurns && s.weakTurns.length)
+      ? s.weakTurns.slice(0, 5).map((w) => {
+          const color = w.severity === 'red' ? C.red : C.yellow;
+          return `<span class="weak-item" style="color:${color}; border-color:${color}">
+            ${w.label} · ${w.what} · ${w.laps} laps</span>`;
+        }).join('')
+      : '<span class="empty-note">WEAK TURNS APPEAR AFTER A FEW COMPARABLE LAPS</span>';
+  }
+  // Live car position.
+  const car = document.getElementById('mapCar');
+  if (car) {
+    const p = s.hasSignal ? pointForDistance(s.lapDistanceM, s.trackLength) : null;
+    if (p) {
+      car.style.display = '';
+      car.style.transform = `translate(${p.x}px, ${p.y}px)`;
+    } else {
+      car.style.display = 'none';
+    }
+  }
+}
+
+// ---- view modes: dashboard / map-only (second monitor) ----
+function setView(v) {
+  document.body.classList.toggle('view-map', v === 'map');
+  $('tabDash').classList.toggle('active', v !== 'map');
+  $('tabMap').classList.toggle('active', v === 'map');
+  try { localStorage.setItem('pitwallView', v); } catch (e) {}
+}
+$('tabDash').addEventListener('click', () => setView('dash'));
+$('tabMap').addEventListener('click', () => setView('map'));
+try { setView(localStorage.getItem('pitwallView') || 'dash'); } catch (e) {}
+
+// ---- session recap (same laps data as the live panel) ----
+function openRecap() {
+  fetch('/recap', { method: 'POST' }).catch(() => {});  // spoken recap
+  const laps = state ? state.laps : [];
+  const body = $('recapBody');
+  if (!laps.length) {
+    body.innerHTML = '<div class="empty-note">NO COMPLETED LAPS YET</div>';
+    $('recapSummary').textContent = '';
+    $('recapOverlay').classList.add('open');
+    return;
+  }
+  const times = laps.map(lapTime);
+  const bestT = Math.min.apply(null, times);
+  const bests = bestSectors(laps);
+  const median = (a) => { const s = a.slice().sort((x, y) => x - y);
+    const m = Math.floor(s.length / 2);
+    return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+  const gaps = [0, 1, 2].map((i) => median(laps.map((l) => l.sectors[i] - bests[i])));
+  const weakest = gaps.indexOf(Math.max.apply(null, gaps));
+  const clean = times.filter((t) => t - bestT < 5000);
+  const sd = clean.length >= 2 ? Math.sqrt(clean.reduce((a, t) => {
+    const m = clean.reduce((x, y) => x + y, 0) / clean.length;
+    return a + (t - m) ** 2; }, 0) / clean.length) : null;
+
+  const row = (label, value, color) =>
+    `<div class="recap-row"><div class="recap-label">${label}</div>
+     <div class="mono recap-value" style="color:${color || C.text}">${value}</div></div>`;
+  const strongest = gaps.indexOf(Math.min.apply(null, gaps));
+  const theo = bests[0] + bests[1] + bests[2];
+  const remaining = bestT - theo;
+  let improvement = null;
+  if (clean.length >= 4) {
+    const avg = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    improvement = avg(clean.slice(0, 3)) - avg(clean.slice(-3));
+  }
+  const rec = state.recurring;
+  body.innerHTML =
+    row('LAPS', laps.length) +
+    row('BEST LAP', fmtLap(bestT), C.purple) +
+    row('THEORETICAL BEST', fmtLap(theo)) +
+    row('WEAKEST SECTOR', `S${weakest + 1} · +${(gaps[weakest] / 1000).toFixed(3)}/lap`,
+        gaps[weakest] >= 100 ? C.yellow : C.green) +
+    row('STRONGEST SECTOR', `S${strongest + 1}`, C.green) +
+    (improvement !== null
+      ? row('SESSION TREND', (improvement >= 0 ? '−' : '+')
+          + Math.abs(improvement / 1000).toFixed(3) + '/lap',
+          improvement >= 0 ? C.green : C.yellow) : '') +
+    (rec ? row('RECURRING MISTAKE',
+        `${rec.label} ${rec.what} · ${rec.laps} laps · ~${rec.avg}${rec.unit}`,
+        C.yellow) : '') +
+    (state.weakTurns && state.weakTurns.length >= 2
+      ? row('WORST TURNS', state.weakTurns.slice(0, 4)
+          .map((w) => `${w.label} ${w.what}`).join(' · '), C.yellow) : '') +
+    row('EST. REMAINING PACE', remaining > 50
+        ? (remaining / 1000).toFixed(3) : '–', C.purple) +
+    row('CONSISTENCY', sd !== null ? '±' + (sd / 1000).toFixed(3) : '––',
+        sd !== null && sd < 300 ? C.green : C.yellow);
+  let summary = gaps[weakest] >= 100
+    ? `Most time is going in sector ${weakest + 1} — about ` +
+      `${(gaps[weakest] / 1000).toFixed(1)}s per lap against your best sectors.`
+    : 'Sectors are even — pace is coming from everywhere equally.';
+  if (state.advice) summary += ` Focus: ${state.advice.toLowerCase()}.`;
+  $('recapSummary').textContent = summary;
+  $('recapOverlay').classList.add('open');
+}
+$('recapBtn').addEventListener('click', openRecap);
+$('recapClose').addEventListener('click', () => $('recapOverlay').classList.remove('open'));
+$('recapOverlay').addEventListener('click', (e) => {
+  if (e.target === $('recapOverlay')) $('recapOverlay').classList.remove('open');
+});
+
+async function poll() {
+  try {
+    const res = await fetch('/state.json');
+    state = await res.json();
+    receivedAt = performance.now();
+    render();
+  } catch (e) { /* server restarting — keep last frame */ }
+}
+
+setInterval(poll, 200);
+setInterval(tickClock, 50);
+poll();
+
+// ---- auth + paywall (Supabase / Stripe; absent in local dev mode) ----
+let authState = null, sbConfig = null, sbClient = null;
+
+async function getSb() {
+  if (!sbClient) {
+    const mod = await import('https://esm.sh/@supabase/supabase-js@2');
+    sbClient = mod.createClient(sbConfig.supabaseUrl, sbConfig.supabaseAnonKey);
+  }
+  return sbClient;
+}
+
+function renderAuth() {
+  const a = authState;
+  const gated = a && a.configured && !a.entitled;
+  $('authGate').classList.toggle('open', !!gated);
+  if (gated) {
+    $('authLogin').style.display = a.loggedIn ? 'none' : 'flex';
+    $('authPaywall').style.display = a.loggedIn ? 'flex' : 'none';
+    if (a.loggedIn) {
+      $('paywallEmail').textContent = a.email || '';
+      $('paywallStatus').textContent = (a.status || 'inactive').toUpperCase();
+    }
+  }
+  const chip = $('accountChip');
+  if (a && a.configured && a.entitled && a.loggedIn) {
+    $('accountEmail').textContent = `${a.email} · ${(a.status || '').toUpperCase()}`;
+    chip.style.display = 'flex';
+  } else {
+    chip.style.display = 'none';
+  }
+}
+
+async function pollAuth() {
+  try {
+    authState = await (await fetch('/auth/state')).json();
+    renderAuth();
+  } catch (e) { /* server restarting */ }
+}
+
+async function handleLogin(signup) {
+  const email = $('authEmail').value.trim();
+  const password = $('authPassword').value;
+  const msg = $('authMsg');
+  if (!email || !password) { msg.textContent = 'Email and password required.'; return; }
+  msg.textContent = signup ? 'Creating account…' : 'Logging in…';
+  try {
+    const sb = await getSb();
+    const { data, error } = signup
+      ? await sb.auth.signUp({ email, password })
+      : await sb.auth.signInWithPassword({ email, password });
+    if (error) { msg.textContent = error.message; return; }
+    if (!data.session) {
+      msg.textContent = 'Check your email to confirm the account, then log in.';
+      return;
+    }
+    await fetch('/auth/session', {
+      method: 'POST',
+      body: JSON.stringify({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      }),
+    });
+    msg.textContent = '';
+    pollAuth();
+  } catch (e) { msg.textContent = 'Login failed: ' + e.message; }
+}
+
+async function handleSubscribe() {
+  const msg = $('paywallMsg');
+  msg.textContent = 'Opening Stripe checkout…';
+  try {
+    const sb = await getSb();
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) { msg.textContent = 'Session expired in this browser — log out and back in.'; return; }
+    const res = await fetch(sbConfig.checkoutUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.access_token}`,
+                 apikey: sbConfig.supabaseAnonKey },
+    });
+    const out = await res.json();
+    if (out.url) { window.location.href = out.url; }
+    else { msg.textContent = out.error || 'Could not start checkout.'; }
+  } catch (e) { msg.textContent = 'Checkout failed: ' + e.message; }
+}
+
+async function handleLogout() {
+  await fetch('/auth/logout', { method: 'POST' }).catch(() => {});
+  try { (await getSb()).auth.signOut(); } catch (e) {}
+  pollAuth();
+}
+
+async function initAuth() {
+  try {
+    sbConfig = await (await fetch('/config.json')).json();
+  } catch (e) { return; }
+  $('btnLogin').addEventListener('click', () => handleLogin(false));
+  $('btnSignup').addEventListener('click', () => handleLogin(true));
+  $('authPassword').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleLogin(false);
+  });
+  $('btnSubscribe').addEventListener('click', handleSubscribe);
+  $('btnRefreshStatus').addEventListener('click', async () => {
+    $('paywallMsg').textContent = 'Checking…';
+    await fetch('/auth/refresh', { method: 'POST' }).catch(() => {});
+    await pollAuth();
+    $('paywallMsg').textContent = '';
+  });
+  $('btnPaywallLogout').addEventListener('click', handleLogout);
+  $('accountLogout').addEventListener('click', handleLogout);
+  await pollAuth();
+  setInterval(pollAuth, 4000);
+  // Back from Stripe: the webhook can lag a few seconds — chase it.
+  if (new URLSearchParams(location.search).get('billing') === 'success') {
+    $('paywallMsg').textContent = 'Payment received — activating…';
+    let tries = 0;
+    const chase = setInterval(async () => {
+      await fetch('/auth/refresh', { method: 'POST' }).catch(() => {});
+      await pollAuth();
+      if ((authState && authState.entitled) || ++tries > 10) clearInterval(chase);
+    }, 3000);
+  }
+}
+initAuth();
+</script>
+</body>
+</html>
