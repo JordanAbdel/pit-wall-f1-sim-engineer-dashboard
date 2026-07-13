@@ -16,8 +16,10 @@ car): it flushes anything queued and cuts off the line currently being
 spoken so the call goes out immediately.
 """
 import logging
+import os
 import queue
 import subprocess
+import sys
 import tempfile
 import threading
 import wave
@@ -25,6 +27,8 @@ import wave
 import config
 
 log = logging.getLogger("speak")
+
+_IS_WIN = sys.platform.startswith("win")
 
 
 class Announcer:
@@ -96,10 +100,29 @@ class _QueuedAnnouncer(Announcer):
         self._worker.join(timeout=35)
 
 
+def _play_wav_cmd(path: str) -> list:
+    """Subprocess command that plays a WAV file to completion and can be
+    stopped by terminating the process (how priority calls cut in). macOS
+    uses afplay; Windows uses the SoundPlayer in built-in PowerShell, so
+    there's nothing extra to install on a tester's machine."""
+    if _IS_WIN:
+        return ["powershell", "-NoProfile", "-Command",
+                f"(New-Object System.Media.SoundPlayer '{path}').PlaySync()"]
+    return ["afplay", path]
+
+
 def _say_builtin(text: str, voice: str, rate: int, register=None) -> None:
     # Text via stdin so nothing is ever parsed as a flag (Jarvis pattern).
-    proc = subprocess.Popen(["say", "-v", voice, "-r", str(rate)],
-                            stdin=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    # This is the last-resort fallback when neural TTS is unavailable:
+    # macOS `say`, Windows SAPI via PowerShell (default system voice).
+    if _IS_WIN:
+        script = ("Add-Type -AssemblyName System.Speech;"
+                  "$s=New-Object System.Speech.Synthesis.SpeechSynthesizer;"
+                  "$s.Speak([Console]::In.ReadToEnd())")
+        cmd = ["powershell", "-NoProfile", "-Command", script]
+    else:
+        cmd = ["say", "-v", voice, "-r", str(rate)]
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             text=True)
     if register:
         register(proc)
@@ -108,7 +131,7 @@ def _say_builtin(text: str, voice: str, rate: int, register=None) -> None:
     except subprocess.TimeoutExpired:
         proc.kill()
         return
-    if proc.returncode is not None and proc.returncode > 0:
+    if not _IS_WIN and proc.returncode is not None and proc.returncode > 0:
         # Likely the voice isn't installed — retry with system default.
         # (Negative returncode means we interrupted it — don't retry.)
         subprocess.run(["say", "-r", str(rate)], input=text, text=True, timeout=30)
@@ -152,18 +175,27 @@ class KokoroTTS(_QueuedAnnouncer):
         samples, sr = self._get_kokoro().create(
             text, voice=self.voice, speed=self.speed, lang="en-gb")
         pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
-        with tempfile.NamedTemporaryFile(suffix=".wav") as f:
-            with wave.open(f.name, "wb") as w:
+        # mkstemp (not NamedTemporaryFile) because on Windows a still-open
+        # NamedTemporaryFile can't be reopened by the player process.
+        fd, path = tempfile.mkstemp(suffix=".wav")
+        os.close(fd)
+        try:
+            with wave.open(path, "wb") as w:
                 w.setnchannels(1)
                 w.setsampwidth(2)
                 w.setframerate(sr)
                 w.writeframes(pcm.tobytes())
-            proc = subprocess.Popen(["afplay", f.name])
+            proc = subprocess.Popen(_play_wav_cmd(path))
             self._register(proc)
             try:
                 proc.wait(timeout=120)
             except subprocess.TimeoutExpired:
                 proc.kill()
+        finally:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
 
 def make_announcer(enabled: bool, engine: str, voice: str, rate: int) -> Announcer:

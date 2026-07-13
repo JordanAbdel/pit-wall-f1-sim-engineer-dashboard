@@ -1,0 +1,58 @@
+name: Windows build
+
+# Builds the Windows tester package (PitWall.exe + voice model + launcher),
+# zips it, and uploads it as a downloadable artifact. Run it by hand from the
+# Actions tab (Run workflow). PyInstaller can't cross-compile, so this runs on
+# a real Windows runner.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install pyinstaller kokoro-onnx numpy
+
+      - name: Download voice model
+        shell: pwsh
+        run: |
+          $base = "https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0"
+          New-Item -ItemType Directory -Force -Path models | Out-Null
+          curl.exe -L --fail -o models/kokoro-v1.0.onnx "$base/kokoro-v1.0.onnx"
+          curl.exe -L --fail -o models/voices-v1.0.bin  "$base/voices-v1.0.bin"
+
+      - name: Build with PyInstaller
+        run: pyinstaller PitWall.spec --noconfirm
+
+      - name: Assemble tester package
+        shell: pwsh
+        run: |
+          $pkg = "PitWall-win"
+          New-Item -ItemType Directory -Force -Path "$pkg/PitWall" | Out-Null
+          Copy-Item -Recurse -Force dist/PitWall/* "$pkg/PitWall/"
+          Copy-Item packaging/windows/PitWall.bat "$pkg/"
+          Copy-Item packaging/windows/TESTER_README_WINDOWS.md "$pkg/TESTER_README.md"
+          # .env points the build at the live Supabase backend so testers can
+          # sign up. The anon key is a public client key (already shipped in the
+          # macOS build); it lives in repo secrets so it isn't committed here.
+          "SUPABASE_URL=${{ secrets.SUPABASE_URL }}`nSUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" |
+            Set-Content -NoNewline -Path "$pkg/PitWall/.env"
+
+      - name: Zip package
+        shell: pwsh
+        run: Compress-Archive -Path PitWall-win/* -DestinationPath PitWall-beta-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PitWall-beta-windows
+          path: PitWall-beta-windows.zip
+          retention-days: 30
