@@ -2,6 +2,7 @@
 .env
 auth.json
 driver_db.json
+logs/
 supabase/.temp/
 
 # Large binaries — re-download/copy, don't version

@@ -27,44 +27,132 @@ EARLY_BRAKE_M = 15.0
 OVERSLOW_KPH = 6
 LATE_THROTTLE_M = 25.0
 
-# Approximate braking-turn positions by lap distance (metres from the
-# line). Only tracks we're confident about; everything else gets the
-# generic zone name. Track ids match packets.TRACK_NAMES.
+# Major heavy-braking corners per track, as (distance_m_from_line,
+# turn_number, optional_name). Turn numbers are the reliable unit; the
+# distances are best-effort estimates anchored to real circuit layouts
+# (the game never broadcasts corner positions), so a call may occasionally
+# land on a neighbouring turn — corrected as they're noticed. Only the
+# well-separated heavy-braking zones the detector actually flags are
+# listed; ambiguous closely-spaced chicane pairs are left to the generic
+# "braking zone X.X k in" fallback. Track ids match packets.TRACK_NAMES.
+CORNER_MATCH_M = 300  # how close a braking zone must be to claim a named turn
+
 TRACK_CORNERS = {
+    0: [  # Melbourne — Albert Park (~5278 m)
+        (330, 1), (880, 3), (1800, 6), (3150, 11), (3950, 13),
+    ],
+    2: [  # Shanghai (~5451 m)
+        (650, 1), (1950, 6), (3350, 11), (4950, 14),
+    ],
+    3: [  # Sakhir — Bahrain (~5412 m)
+        (1050, 1), (1800, 4), (2700, 8), (3350, 10), (3750, 11), (4450, 13),
+    ],
+    4: [  # Catalunya (~4657 m)
+        (900, 1), (1550, 4), (1950, 5), (2500, 7), (3350, 10), (4050, 13),
+    ],
+    5: [  # Monaco (~3337 m)
+        (180, 1, "Sainte Devote"), (1050, 6, "the hairpin"),
+        (1750, 10, "the Nouvelle Chicane"), (2950, 18, "Rascasse"),
+    ],
+    6: [  # Montreal (~4361 m)
+        (180, 2), (1150, 6), (1500, 8), (2450, 10, "the hairpin"), (3900, 13),
+    ],
+    7: [  # Silverstone (~5891 m)
+        (900, 3, "Village"), (1600, 6, "Brooklands"), (1950, 7, "Luffield"),
+        (3950, 15, "Stowe"), (4350, 16, "Vale"),
+    ],
+    9: [  # Hungaroring (~4381 m)
+        (600, 1), (950, 2), (1550, 4), (3700, 12),
+    ],
     10: [  # Spa-Francorchamps (~7004 m)
-        (340, "turn one, La Source"),
-        (2050, "turn five, Les Combes"),
-        (2750, "turn eight, Rivage"),
-        (3390, "turn ten, Pouhon"),
-        (4150, "turn twelve, Fagnes"),
-        (4900, "turn fifteen, Stavelot"),
-        (6580, "the final chicane"),
+        (340, 1, "La Source"), (2050, 5, "Les Combes"), (2750, 8, "Rivage"),
+        (3390, 10, "Pouhon"), (4150, 12, "Fagnes"), (4900, 15, "Stavelot"),
+        (6580, 19, "the Bus Stop chicane"),
+    ],
+    11: [  # Monza (~5793 m)
+        (650, 1, "the Rettifilo chicane"), (1450, 4, "the Roggia chicane"),
+        (1900, 6, "Lesmo"), (3750, 8, "Ascari"), (5150, 11, "Parabolica"),
+    ],
+    12: [  # Singapore — Marina Bay (~4940 m)
+        (350, 1), (1900, 7), (3100, 13), (3900, 16),
+    ],
+    13: [  # Suzuka (~5807 m)
+        (700, 1), (2100, 8, "Degner"), (2900, 11, "the hairpin"),
+        (3900, 13, "Spoon"), (5450, 16, "the Casio chicane"),
+    ],
+    14: [  # Abu Dhabi — Yas Marina (~5281 m)
+        (350, 1), (1350, 5, "the hairpin"), (2900, 9),
+    ],
+    15: [  # Texas — COTA (~5513 m)
+        (700, 1), (2500, 11), (3400, 12, "the hairpin"), (4350, 15), (5250, 20),
+    ],
+    16: [  # Brazil — Interlagos (~4309 m)
+        (500, 1, "the Senna S"), (1300, 4), (2200, 8), (2900, 10),
+        (3500, 12, "Juncao"),
+    ],
+    17: [  # Austria — Red Bull Ring (~4318 m)
+        (600, 1), (1300, 3), (2050, 4), (2900, 6), (3900, 9),
+    ],
+    19: [  # Mexico City (~4304 m)
+        (850, 1), (1500, 4), (2150, 6), (3400, 12),
+    ],
+    20: [  # Baku (~6003 m)
+        (250, 1), (900, 3), (1450, 4), (4350, 15), (4650, 16),
+    ],
+    26: [  # Zandvoort (~4259 m)
+        (450, 1, "Tarzan"), (900, 3), (1900, 7), (2900, 11),
+    ],
+    27: [  # Imola (~4909 m)
+        (500, 2, "Tamburello"), (1400, 5, "Tosa"), (2600, 9, "Acque Minerali"),
+        (3250, 12, "Variante Alta"), (4050, 14, "Rivazza"),
+    ],
+    29: [  # Jeddah (~6174 m)
+        (1050, 1), (2900, 13), (5000, 22), (6000, 27),
+    ],
+    30: [  # Miami (~5412 m)
+        (900, 1), (2100, 8), (2900, 11), (4900, 17),
+    ],
+    31: [  # Las Vegas (~6201 m)
+        (800, 1), (1600, 5), (3300, 12), (5200, 14),
+    ],
+    32: [  # Qatar — Losail (~5419 m)
+        (600, 1), (2000, 6), (3100, 10), (5000, 16),
     ],
 }
 
+# Spoken turn numbers 1-20; above that TTS reads the numeral fine.
+_NUM_WORDS = {1: "one", 2: "two", 3: "three", 4: "four", 5: "five",
+              6: "six", 7: "seven", 8: "eight", 9: "nine", 10: "ten",
+              11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
+              15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
+              19: "nineteen", 20: "twenty"}
+
+
+def _corner_at(track_id, onset_m: float):
+    """Nearest listed corner within tolerance, or None."""
+    best = None
+    for entry in TRACK_CORNERS.get(track_id, ()):
+        d = abs(onset_m - entry[0])
+        if d <= CORNER_MATCH_M and (best is None or d < abs(onset_m - best[0])):
+            best = entry
+    return best
+
 
 def turn_name(track_id, onset_m: float) -> str:
-    for dist, name in TRACK_CORNERS.get(track_id, ()):
-        if abs(onset_m - dist) <= 300:
-            return name
-    return f"the braking zone {onset_m / 1000:.1f} k in"
+    """Spoken form: 'turn ten', or 'turn ten, Pouhon' when a name is set."""
+    c = _corner_at(track_id, onset_m)
+    if c is None:
+        return f"the braking zone {onset_m / 1000:.1f} k in"
+    num = c[1]
+    base = f"turn {_NUM_WORDS.get(num, num)}"
+    name = c[2] if len(c) > 2 else None
+    return f"{base}, {name}" if name else base
 
 
 def turn_label(track_id, onset_m: float) -> str:
     """Short UI label: 'T10' or '2.1k'."""
-    for dist, name in TRACK_CORNERS.get(track_id, ()):
-        if abs(onset_m - dist) <= 300:
-            if name.startswith("turn "):
-                word = name.split(",")[0].removeprefix("turn ").strip()
-                numbers = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
-                           "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
-                           "eleven": 11, "twelve": 12, "thirteen": 13,
-                           "fourteen": 14, "fifteen": 15, "sixteen": 16,
-                           "seventeen": 17, "eighteen": 18, "nineteen": 19}
-                if word in numbers:
-                    return f"T{numbers[word]}"
-            return name.split(",")[-1].strip().title()
-    return f"{onset_m / 1000:.1f}k"
+    c = _corner_at(track_id, onset_m)
+    return f"T{c[1]}" if c is not None else f"{onset_m / 1000:.1f}k"
 
 
 class BrakingZone(NamedTuple):

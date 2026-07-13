@@ -11,8 +11,12 @@ IP = this Mac's LAN IP, port 20777, UDP format 2025.
 """
 import argparse
 import logging
+import logging.handlers
 import socket
+import sys
+import threading
 import time
+import traceback
 import webbrowser
 from collections import deque
 
@@ -582,6 +586,53 @@ def run_raw(sock: socket.socket) -> None:
               f"  playerCarIdx={h.player_car_index}")
 
 
+def setup_logging(verbose: bool):
+    """Console logging (as before) plus a rotating file in APP_DIR/logs so a
+    tester can send a log file instead of screenshotting the Terminal.
+    Returns the log path (or None if the file couldn't be opened)."""
+    logging.basicConfig(level=logging.DEBUG if verbose else logging.INFO,
+                        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
+                        datefmt="%H:%M:%S")
+    log_path = None
+    try:
+        log_dir = config.APP_DIR / "logs"
+        log_dir.mkdir(exist_ok=True)
+        log_path = log_dir / "pitwall.log"
+        fh = logging.handlers.RotatingFileHandler(
+            log_path, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        fh.setLevel(logging.INFO)
+        fh.setFormatter(logging.Formatter(
+            "%(asctime)s %(name)s %(levelname)s: %(message)s", "%Y-%m-%d %H:%M:%S"))
+        logging.getLogger().addHandler(fh)
+        logging.getLogger("pitwall").info(
+            "=== PitWall started (%s) ===", time.strftime("%Y-%m-%d %H:%M:%S"))
+    except Exception:
+        logging.getLogger("pitwall").warning("could not open log file", exc_info=True)
+
+    # Route uncaught exceptions (main thread + worker threads) into the log
+    # so crashes leave a trace on disk, not just a fleeting Terminal message.
+    crash_log = logging.getLogger("crash")
+
+    def excepthook(exc_type, exc, tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc, tb)
+            return
+        crash_log.critical("UNCAUGHT EXCEPTION\n%s",
+                           "".join(traceback.format_exception(exc_type, exc, tb)))
+        sys.__excepthook__(exc_type, exc, tb)  # keep the Terminal traceback too
+
+    def thread_excepthook(args):
+        if issubclass(args.exc_type, KeyboardInterrupt):
+            return
+        crash_log.critical("UNCAUGHT EXCEPTION in thread %s\n%s", args.thread.name,
+                           "".join(traceback.format_exception(
+                               args.exc_type, args.exc_value, args.exc_traceback)))
+
+    sys.excepthook = excepthook
+    threading.excepthook = thread_excepthook
+    return log_path
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="F1 25 voice race engineer")
     parser.add_argument("--port", type=int, default=config.PORT)
@@ -603,14 +654,14 @@ def main() -> None:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
-                        format="%(asctime)s %(name)s %(levelname)s: %(message)s",
-                        datefmt="%H:%M:%S")
+    log_path = setup_logging(args.verbose)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((config.BIND_IP, args.port))
     sock.settimeout(1.0)
     print(f"Listening for F1 25 telemetry on UDP {config.BIND_IP}:{args.port} …")
+    if log_path:
+        print(f"Logs (send this if something breaks): {log_path}")
 
     if args.raw:
         try:
@@ -644,13 +695,23 @@ def main() -> None:
     engineer = Engineer(announcer, dash, cloud)
     if dash:
         dash.on_recap = engineer.speak_recap
+    handler_errors = 0
     try:
         while True:
             try:
                 data, _ = sock.recvfrom(2048)
             except socket.timeout:
                 continue
-            engineer.handle(data)
+            try:
+                engineer.handle(data)
+            except Exception:
+                # One bad packet or analysis edge case must not end the
+                # session (and lose the driver's data). Log it and carry on;
+                # throttle so a persistent bug can't fill the disk.
+                handler_errors += 1
+                if handler_errors <= 50 or handler_errors % 500 == 0:
+                    log.exception("error handling packet (#%d) — continuing",
+                                  handler_errors)
     except KeyboardInterrupt:
         print("\nStopped.")
     finally:
