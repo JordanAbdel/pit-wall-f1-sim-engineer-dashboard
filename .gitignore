@@ -1,6 +1,7 @@
 # Secrets / local state — never commit
 .env
 auth.json
+license.json
 driver_db.json
 logs/
 supabase/.temp/

@@ -511,8 +511,6 @@ class Engineer:
             record["track_name"] = packets.TRACK_NAMES.get(self._track_id)
             driver_db.append(record)
             self._db = driver_db.load()
-            if self.cloud is not None:
-                self.cloud.upload_session(record, laps)
 
     def _say(self, line: str) -> None:
         print(f'  🎧 "{line}"')
@@ -670,11 +668,22 @@ def main() -> None:
             print("\nStopped.")
         return
 
+    # Frozen builds must always run against the license backend — LOCAL DEV
+    # MODE is a source-checkout convenience only, never a shipped fallback.
+    if config.IS_FROZEN and not (config.SUPABASE_URL and config.SUPABASE_ANON_KEY):
+        print("This build is missing its licensing configuration and cannot "
+              "run.\nRe-download PitWall, or contact Jordan for a fresh build.")
+        sys.exit(1)
+
     cloud = cloud_mod.Cloud()
-    if cloud.configured:
-        print("Cloud backend configured — subscription required to run.")
-    else:
+    if not cloud.configured:
         print("LOCAL DEV MODE — no auth/paywall (set SUPABASE_URL to enable).")
+    elif cloud.entitled:
+        who = f" ({cloud.email})" if cloud.email else ""
+        print(f"License OK{who} — verifying with the server in the background.")
+    else:
+        print("Subscription required — sign in via the dashboard. "
+              "(If you're offline, connect once to activate.)")
 
     dash = None
     if not args.no_dashboard:
@@ -716,9 +725,6 @@ def main() -> None:
         print("\nStopped.")
     finally:
         engineer.archive_session()
-        cloud.flush()  # wait for the final session's cloud upload — a
-                       # fire-and-forget thread started this late would
-                       # otherwise get killed mid-request on process exit
         announcer.close()
         if dash:
             dash.stop()

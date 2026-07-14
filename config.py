@@ -12,19 +12,22 @@ from pathlib import Path
 #   APP_DIR    — where the actual executable/script lives, for state that
 #                must persist and stay discoverable (.env, driver_db.json,
 #                auth.json). Never the temp extraction dir.
+IS_FROZEN = bool(getattr(sys, "frozen", False))
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-APP_DIR = (Path(sys.executable).resolve().parent if getattr(sys, "frozen", False)
+APP_DIR = (Path(sys.executable).resolve().parent if IS_FROZEN
           else Path(__file__).resolve().parent)
 
-# Load KEY=VALUE pairs from a local .env (real environment wins). This is
-# where the Supabase keys go — see SETUP_BILLING.md.
-_env_file = APP_DIR / ".env"
-if _env_file.exists():
-    for _line in _env_file.read_text().splitlines():
-        _line = _line.strip()
-        if _line and not _line.startswith("#") and "=" in _line:
-            _k, _, _v = _line.partition("=")
-            os.environ.setdefault(_k.strip(), _v.strip())
+# Load KEY=VALUE pairs from .env (real environment wins). This is where the
+# Supabase keys go — see SETUP_BILLING.md. APP_DIR/.env is the dev override;
+# frozen builds carry a copy baked inside the bundle (see PitWall.spec) so
+# licensing config can't be stripped off by deleting a file next to the exe.
+for _env_file in (APP_DIR / ".env", BUNDLE_DIR / ".env"):
+    if _env_file.exists():
+        for _line in _env_file.read_text().splitlines():
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _, _v = _line.partition("=")
+                os.environ.setdefault(_k.strip(), _v.strip())
 
 # Cloud backend (Supabase). Absent -> LOCAL DEV MODE: no auth, no paywall,
 # no cloud persistence — the app behaves like the original personal tool.

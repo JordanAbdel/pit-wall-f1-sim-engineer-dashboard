@@ -30,6 +30,16 @@ jobs:
           curl.exe -L --fail -o models/kokoro-v1.0.onnx "$base/kokoro-v1.0.onnx"
           curl.exe -L --fail -o models/voices-v1.0.bin  "$base/voices-v1.0.bin"
 
+      - name: Write cloud config (baked into the bundle by PitWall.spec)
+        shell: pwsh
+        run: |
+          # Points the build at the live Supabase backend so testers can sign
+          # up. The anon key is a public client key; it lives in repo secrets
+          # so it isn't committed here. The spec bundles this file into
+          # _internal — frozen builds refuse to run without it (no dev mode).
+          "SUPABASE_URL=${{ secrets.SUPABASE_URL }}`nSUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" |
+            Set-Content -NoNewline -Path .env
+
       - name: Build with PyInstaller
         run: pyinstaller PitWall.spec --noconfirm
 
@@ -41,11 +51,6 @@ jobs:
           Copy-Item -Recurse -Force dist/PitWall/* "$pkg/PitWall/"
           Copy-Item packaging/windows/PitWall.bat "$pkg/"
           Copy-Item packaging/windows/TESTER_README_WINDOWS.md "$pkg/TESTER_README.md"
-          # .env points the build at the live Supabase backend so testers can
-          # sign up. The anon key is a public client key (already shipped in the
-          # macOS build); it lives in repo secrets so it isn't committed here.
-          "SUPABASE_URL=${{ secrets.SUPABASE_URL }}`nSUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" |
-            Set-Content -NoNewline -Path "$pkg/PitWall/.env"
 
       - name: Zip package
         shell: pwsh

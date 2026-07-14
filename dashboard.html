@@ -1037,6 +1037,8 @@ async function getSb() {
   return sbClient;
 }
 
+const OFFLINE_MSG = "Can't reach the license server — check your internet connection, then restart PitWall.";
+
 function renderAuth() {
   const a = authState;
   const gated = a && a.configured && !a.entitled;
@@ -1048,6 +1050,11 @@ function renderAuth() {
       $('paywallEmail').textContent = a.email || '';
       $('paywallStatus').textContent = (a.status || 'inactive').toUpperCase();
     }
+    // Gated because we're offline (no valid cached license), not because
+    // the subscription lapsed — say so instead of pitching Stripe.
+    const msgEl = a.loggedIn ? $('paywallMsg') : $('authMsg');
+    if (a.offline && !msgEl.textContent) msgEl.textContent = OFFLINE_MSG;
+    else if (!a.offline && msgEl.textContent === OFFLINE_MSG) msgEl.textContent = '';
   }
   const chip = $('accountChip');
   if (a && a.configured && a.entitled && a.loggedIn) {

@@ -66,10 +66,11 @@ engine stays silent until a logged-in, subscribed user is present.
    expiry, any CVC.
 3. Back in the dashboard: status flips to ACTIVE within seconds
    (webhook), the gate drops, and the app works.
-4. Run a session; check Supabase Table Editor → `sessions` and `laps`
-   rows appeared for your user. Restart the app: still logged in
-   (refresh token persisted in `auth.json`).
-5. Cancel the subscription in Stripe's test dashboard → status flips to
+4. Restart the app: still logged in (refresh token persisted in
+   `auth.json`), and the startup license check logs
+   `license check: active (<email>)`.
+5. Cancel the subscription in Stripe's test dashboard → on the next
+   app start (or the dashboard's refresh-status button) status flips to
    `canceled` and the paywall returns.
 
 ## Notes
@@ -77,7 +78,13 @@ engine stays silent until a logged-in, subscribed user is present.
 - Everything is **Stripe test mode**. Going live = new live keys +
   live webhook endpoint + Jordan's explicit go-ahead. Nothing else
   changes.
+- **License model**: the subscription is checked once at startup and
+  cached in `license.json` (chmod 600). If the server is unreachable,
+  a machine keeps working for 7 days from its last successful check
+  (`LICENSE_GRACE_DAYS` in cloud.py). Entitlement never changes
+  mid-session on a timer — only at startup and on user auth actions.
 - `auth.json` (local login token) is per-machine and chmod 600. Delete
-  it to force a fresh login.
-- Local `driver_db.json` keeps working as the offline cache; cloud
-  upload happens in addition, per session, when logged in.
+  it (and `license.json`) to force a fresh login.
+- Session data stays local in `driver_db.json` — nothing is uploaded.
+  The `sessions`/`laps` tables in the schema are currently unused
+  (kept for a possible future opt-in sync).

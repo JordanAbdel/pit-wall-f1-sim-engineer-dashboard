@@ -89,9 +89,32 @@ class Dashboard:
 
     def start(self, port: int) -> None:
         dashboard = self
+        # Only the dashboard's own origin may talk to this server. Blocks
+        # cross-site request forgery from web pages the user has open (a
+        # page can't be allowed to POST attacker tokens to /auth/session)
+        # and DNS-rebinding tricks (Host header must be ours).
+        allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
+        allowed_origins = {f"http://{h}" for h in allowed_hosts}
+        rejected_once = set()
 
         class Handler(BaseHTTPRequestHandler):
+            def _request_ok(self) -> bool:
+                host = self.headers.get("Host", "")
+                origin = self.headers.get("Origin")
+                ok = host in allowed_hosts and (origin is None
+                                                or origin in allowed_origins)
+                if not ok:
+                    key = (host, origin)
+                    if key not in rejected_once:
+                        rejected_once.add(key)
+                        log.warning("rejected request with Host=%r Origin=%r",
+                                    host, origin)
+                    self._send(403, "text/plain", b"forbidden")
+                return ok
+
             def do_GET(self):
+                if not self._request_ok():
+                    return
                 path = self.path.split("?", 1)[0]  # strip query string (e.g. ?billing=success)
                 self.path = path
                 if self.path in ("/", "/index.html"):
@@ -116,6 +139,8 @@ class Dashboard:
                     self._send(404, "text/plain", b"not found")
 
             def do_POST(self):
+                if not self._request_ok():
+                    return
                 if self.path == "/recap":
                     if dashboard.on_recap is not None:
                         try:
