@@ -24,7 +24,7 @@ Xbox (F1 25) ──UDP──▶  Mac listens on port 20777
                           │
                           ├─▶ parses lap/sector times, tyres, fuel
                           ├─▶ compares this lap/sector to your session best
-                          ├─▶ speaks a short line ("Purple sector two, three tenths quicker")
+                          ├─▶ speaks a short line ("Your best second sector so far — three tenths quicker")
                           └─▶ updates the PIT WALL dashboard in your browser
 ```
 
@@ -106,16 +106,28 @@ changes (new network, router reboot), update the Xbox setting to match.
 
 - **Terminal**: a line per sector and per lap completed, e.g.
   `[lap 2] S1 30.900  delta -0.300s  best 30.900  ** personal best`
-- **Voice**: pit-wall radio register — clipped, delta-first, max two
-  short sentences, in a natural British voice. *"Purple, sector one.
-  Minus point 3."* … *"Plus point 3, sector two."* … *"New best, one
-  50 point 5."* Clean, on-pace sectors get **silence** (anything under
-  `CALLOUT_MIN_DELTA_MS` in config.py, default 0.1s, isn't worth air
-  time). When the telemetry explains a delta he adds one observation
-  (*"Down 9 on top speed."*), plus occasional facts: tyre age, low
-  fuel, best trap speed, a radio check when telemetry connects, and an
-  *"Off in sector two. Lap's gone."* call instead of tenths when
-  you've been through the gravel.
+- **Voice**: a human race engineer in a natural British voice — plain
+  sentences that say what happened, why, and what to try next. *"You
+  lost about three tenths in sector one, mostly at La Source — you
+  braked around fifteen metres too early. Go deeper on the brakes next
+  time."* … *"That's your best second sector so far."* Clean, on-pace
+  sectors get **silence** (anything under `CALLOUT_MIN_DELTA_MS` in
+  config.py, default 0.1s, isn't worth air time). Occasional facts:
+  tyre age, low fuel, best top speed, a radio check when telemetry
+  connects, and a *"Big moment in the second sector — that lap's
+  gone"* call instead of tenths when you've been through the gravel.
+- **Online reference times**: in **Time Trial** the coaching compares
+  you against your **rival ghost** — the only online times the game
+  broadcasts — with live sector-by-sector deltas (*"two tenths off the
+  rival in the first sector"*). In other hotlap sessions it compares
+  against a per-track **target lap** from `benchmarks.json` (editable —
+  tune the targets to taste). The *cause* analysis (which corner, what
+  went wrong) always comes from your own laps: no game or service
+  exposes other drivers' corner-level telemetry.
+- **Onboarding + help**: first launch opens a 3-step setup guide in the
+  dashboard with your Mac's actual IP filled into the F1 25 telemetry
+  settings; a **HELP** button in the header has the FAQ (no signal,
+  blocked app, no voice, logs, billing) and can reopen the guide.
 - **Flag calls (priority radio)**: yellow / track clear, safety car,
   VSC, green flag, red flag, blue flag, chequered flag, and your own
   penalties. Flag calls jump the queue and cut off whatever routine
@@ -142,8 +154,9 @@ changes (new network, router reboot), update the Xbox setting to match.
   from your best lap to **stint pace** (median of your last 5 laps) —
   no nagging about being off a hotlap you set on fresh tyres. Calls
   become race radio: *"P4, one 33 point 5. Gap ahead, 1 point 2."*,
-  *"Fastest lap, one 33 point 1."*, *"Pace dropping — plus point 4 on
-  your stint."* Corner coaching compares against your recent laps, so
+  *"That's the fastest lap of the race — a one 33 point 1."*,
+  *"Your pace is dropping — four tenths slower than your stint
+  average."* Corner coaching compares against your recent laps, so
   it flags mistakes and degradation, not fuel load. Practice, quali,
   and Time Trial keep best-lap coaching. Tune the race comment
   threshold via `RACE_CALLOUT_MIN_DELTA_MS` in config.py.
@@ -169,16 +182,17 @@ changes (new network, router reboot), update the Xbox setting to match.
   point 5."* The debrief compares against your previous session at the
   same track.
 - **Live corner coaching**: the moment you exit a corner you clearly
-  lost time in, he tells you — *"Braking early into turn ten — go 20
-  metres deeper."*, *"Overslowed turn one, 8 down — carry more in next
-  lap."* High-confidence, significant losses only, at most one call
+  lost time in, he tells you — *"You braked early there at turn
+  ten — you can go about 20 metres deeper next time."*, *"You lost time
+  at turn one just there — about 8 kph too slow at the apex."* High-confidence, significant losses only, at most one call
   every 10 seconds, never repeating a corner the sector call just
   covered, and off in qualifying. Needs a reference lap on the board
   first.
 - **Corner coaching**: when you lose meaningful time in a sector
   (2 tenths or more), he compares your braking zones against your best
-  lap and names the worst one — *"Braking early into turn ten, Pouhon,
-  15 metres."*, *"Overslowed turn one — 8 k down at apex."*, *"Slow
+  lap and names the worst one — *"You braked about 15 metres too
+  early for turn ten, Pouhon."*, *"You overslowed turn one — about
+  8 kph too slow at the apex."*, *"Slow
   exit at the final chicane, throttle sooner."* Needs one full lap on
   the board first (it compares
   against the best lap driven while the app was listening). Named turns

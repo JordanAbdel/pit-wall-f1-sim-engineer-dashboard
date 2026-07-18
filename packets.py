@@ -309,6 +309,41 @@ def parse_car_status(data: bytes, car_index: int) -> CarStatus:
     return CarStatus(*CAR_STATUS_STRUCT.unpack_from(data, offset))
 
 
+# --- Time Trial (packet ID 14) — three data sets: session best, personal
+# best, and the RIVAL ghost. The rival is the only online reference the
+# game ever broadcasts: its lap + sector times, live, in Time Trial.
+
+TT_DATA_SET = struct.Struct("<BBIIIIBBBBBB")
+
+
+class TimeTrialSet(NamedTuple):
+    car_idx: int
+    team_id: int
+    lap_time_ms: int
+    sector1_ms: int
+    sector2_ms: int
+    sector3_ms: int
+    traction_control: int
+    gearbox_assist: int
+    anti_lock_brakes: int
+    equal_car_performance: int
+    custom_setup: int
+    valid: int
+
+
+class TimeTrialData(NamedTuple):
+    session_best: TimeTrialSet
+    personal_best: TimeTrialSet
+    rival: TimeTrialSet
+
+
+def parse_time_trial(data: bytes) -> TimeTrialData:
+    sets = [TimeTrialSet(*TT_DATA_SET.unpack_from(
+                data, HEADER.size + i * TT_DATA_SET.size))
+            for i in range(3)]
+    return TimeTrialData(*sets)
+
+
 # --- Session History (packet ID 11) — one car per packet ---
 
 SH_PREAMBLE = struct.Struct("<BBBBBBB")
@@ -354,6 +389,8 @@ def parse_session_history(data: bytes) -> SessionHistory:
 
 assert HEADER.size == 29
 assert CAR_LAP.size == 57
+assert TT_DATA_SET.size == 24
+assert HEADER.size + 3 * TT_DATA_SET.size == EXPECTED_SIZES[TIME_TRIAL]
 assert CAR_STATUS_STRUCT.size == 55
 assert LAP_HISTORY.size == 14
 assert HEADER.size + NUM_CARS * CAR_LAP.size + 2 == EXPECTED_SIZES[LAP_DATA]

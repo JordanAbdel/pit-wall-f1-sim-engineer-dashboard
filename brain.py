@@ -1,10 +1,19 @@
-"""Race engineer persona — analysis results in, pit-wall radio lines out.
+"""Race engineer persona — analysis results in, spoken coaching out.
 
-Register: real pit-wall radio. Clipped, delta-first, no filler, no
-coaching-speak. Triage before speaking — a delta under
-config.CALLOUT_MIN_DELTA_MS gets silence, not a forced comment. Hard
-cap of two short sentences per callout. Warmth is reserved for a
-clearly strong new best, and even then it's two flat words.
+Register: a human race engineer, not a radio robot. Plain sentences that
+say what happened, why, and what to do about it: "You lost about three
+tenths in sector one, mostly at La Source — you braked around fifteen
+metres too early. Go deeper on the brakes next time." No jargon: no
+"purple", no bare "k", numbers spoken the way a person would say them.
+
+Triage still applies — a delta under config.CALLOUT_MIN_DELTA_MS gets
+silence, not a forced comment. Calls stay short (roughly two sentences);
+only the debrief runs longer.
+
+When a reference is available (the Time Trial rival ghost, or the track
+target table), deltas are spoken against it — "two tenths off the rival"
+— rather than against the driver's own best. The WHY (corner causes)
+always comes from the driver's own laps; see reference.py.
 
 This module owns tone and phrasing only; the numbers come from
 analysis.py, corner findings from trace.py, live context from state.py.
@@ -15,22 +24,40 @@ import config
 import trace
 from analysis import LapResult, SectorResult
 
-SECTOR_WORDS = {1: "one", 2: "two", 3: "three"}
-BIG_MOMENT_MS = 5000   # loss so large it's an off, not a delta worth reciting
-STRONG_BEST_MS = 300   # a best by this much earns two words of warmth
-MIN_TEL_SAMPLES = 40   # don't comment on driving stats from a handful of samples
+SECTOR_ORDINALS = {1: "first", 2: "second", 3: "final"}
+BIG_MOMENT_MS = 5000     # loss so large it's an off, not a delta worth reciting
+STRONG_BEST_MS = 300     # a best by this much earns explicit praise
+MIN_TEL_SAMPLES = 40     # don't comment on driving stats from a handful of samples
+REF_MAX_TALK_MS = 10_000  # a reference gap beyond this isn't actionable — skip it
 
 
-def _delta_words(delta_ms: int) -> str:
-    """Broadcast-style magnitude, one decimal: 'point 3', '1 point 2'."""
-    seconds = abs(delta_ms) / 1000
-    whole = int(seconds)
-    tenth = round((seconds - whole) * 10)
-    if tenth == 10:
-        whole, tenth = whole + 1, 0
-    if whole == 0:
-        return f"point {tenth}"
-    return f"{whole} point {tenth}"
+_COUNT_WORDS = {2: "two", 3: "three", 4: "four", 5: "five",
+                6: "six", 7: "seven", 8: "eight", 9: "nine"}
+
+
+def _delta_phrase(delta_ms: int) -> str:
+    """Natural spoken magnitude: 'two hundredths', 'a tenth', 'three
+    tenths', 'half a second', '1.2 seconds'."""
+    ms = abs(delta_ms)
+    if ms < 95:
+        n = max(1, round(ms / 10))
+        if n >= 10:
+            return "a tenth"
+        return "a hundredth" if n == 1 else f"{_COUNT_WORDS[n]} hundredths"
+    if ms < 950:
+        n = round(ms / 100)
+        if n >= 10:
+            return "a second"
+        if n == 1:
+            return "a tenth"
+        if n == 5:
+            return "half a second"
+        return f"{_COUNT_WORDS[n]} tenths"
+    secs = ms / 1000
+    if abs(secs - round(secs)) < 0.05:
+        n = round(secs)
+        return "a second" if n == 1 else f"{n} seconds"
+    return f"{secs:.1f} seconds"
 
 
 def _lap_time_words(ms: int) -> str:
@@ -46,8 +73,8 @@ def _lap_time_words(ms: int) -> str:
 
 
 class RaceEngineer:
-    # Imperative coaching per cause — used for streak calls, the
-    # dashboard advice line, and the debrief recommendation.
+    # Imperative coaching per cause — used for the dashboard advice line
+    # and the debrief recommendation.
     ADVICE = {
         "braked_early": "Brake later into {}",
         "overslowed": "Carry more speed through {}",
@@ -71,86 +98,93 @@ class RaceEngineer:
         self._last_pick[key] = choice
         return choice
 
-    # ---- flag calls: fixed, instant, no variation — safety radio ----
+    # ---- flag calls: fixed, instant, safety radio stays short ----
     FLAG_CALLS = {
-        "yellow": "Yellow flag.",
-        "clear": "Track clear, green flag.",
-        "red": "Red flag, red flag.",
-        "sc": "Safety car deployed.",
-        "vsc": "Virtual safety car deployed.",
-        "sc_in": "Safety car in this lap.",
-        "green": "Green flag, green flag.",
-        "blue": "Blue flag, car behind on a fast lap.",
-        "chequered": "Chequered flag.",
-        "drive_through": "Drive through penalty.",
-        "stop_go": "Stop go penalty.",
+        "yellow": "Yellow flag ahead — take care.",
+        "clear": "Track's clear again, green flag.",
+        "red": "Red flag, red flag — session's stopped.",
+        "sc": "Safety car's out.",
+        "vsc": "Virtual safety car — hold your delta.",
+        "sc_in": "Safety car's coming in this lap.",
+        "green": "Green flag — race on.",
+        "blue": "Blue flag — car behind is on a fast lap, let him through.",
+        "chequered": "That's the chequered flag.",
+        "drive_through": "That's a drive-through penalty for you.",
+        "stop_go": "That's a stop-and-go penalty for you.",
     }
 
     def flag_line(self, kind: str, seconds: int | None = None) -> str | None:
         if kind == "time_penalty" and seconds:
-            return f"Time penalty, {seconds} seconds."
+            return f"You've picked up a {seconds} second time penalty."
         return self.FLAG_CALLS.get(kind)
 
     # ---- radio calls ----
     def radio_check(self) -> str:
         return self._pick("radio", [
-            "Radio check.",
-            "Radio check — telemetry live.",
+            "Radio check — I can see the car. Telemetry's coming through.",
+            "Radio check. I've got your data, we're live.",
         ])
 
     def new_session(self) -> str:
         return self._pick("new_session", [
-            "New session. Times reset.",
-            "New session, bests cleared.",
+            "New session — I've reset all the times.",
+            "Fresh session, starting the times over.",
         ])
 
-    # ---- corner detail (one clipped sentence, data-backed only) ----
+    # ---- corner detail: what happened and what to do about it ----
     def _corner_words(self, finding, track_id) -> str:
         name = trace.turn_name(track_id, finding.onset_m)
-        soft = "" if finding.confidence == "high" else "Looks like "
+        you = "It looks like you" if finding.confidence != "high" else "You"
         if finding.cause == "overslowed":
-            line = f"overslowed {name} — {abs(finding.min_speed_diff)} k down at apex."
-        elif finding.cause == "braked_early":
+            k = abs(finding.min_speed_diff)
+            return (f"{you} overslowed {name} — about {k} kph too slow at "
+                    f"the apex. Trust the grip and carry more speed through there.")
+        if finding.cause == "braked_early":
             metres = round(abs(finding.onset_diff_m) / 5) * 5
-            line = f"braking early into {name}, {metres} metres."
-        else:
-            line = f"slow exit at {name}, throttle sooner."
-        if soft:
-            return soft + line
-        return line[0].upper() + line[1:]
+            return (f"{you} braked about {metres} metres too early for "
+                    f"{name}. Try going deeper on the brakes next time.")
+        return (f"{you} were slow back on the power out of {name}. "
+                f"Get on the throttle earlier there.")
 
-    SHORT_ADVICE = {"braked_early": "brake later",
-                    "overslowed": "carry more speed",
-                    "slow_exit": "earlier on the throttle"}
+    SHORT_ADVICE = {"braked_early": "brake later there",
+                    "overslowed": "carry more speed through there",
+                    "slow_exit": "get on the throttle earlier"}
 
     def live_corner_line(self, finding, track_id) -> str:
         """Immediate call as the car exits a corner it just lost time in.
-        One sentence — the driver is mid-lap."""
+        Short — the driver is mid-lap."""
         name = trace.turn_name(track_id, finding.onset_m)
         if finding.cause == "braked_early":
             metres = round(abs(finding.onset_diff_m) / 5) * 5
             return self._pick("live_early", [
-                f"Braking early into {name} — go {metres} metres deeper.",
-                f"You gave up {metres} metres on the brakes at {name}. Later next time.",
+                f"You braked early there at {name} — you can go about "
+                f"{metres} metres deeper next time.",
+                f"That was an early brake into {name}. Carry it about "
+                f"{metres} metres further in.",
             ])
         if finding.cause == "overslowed":
             k = abs(finding.min_speed_diff)
             return self._pick("live_overslow", [
-                f"Overslowed {name}, {k} down — carry more in next lap.",
-                f"{k} k down through {name}. Trust it, more apex speed.",
+                f"You lost time at {name} just there — about {k} kph too "
+                f"slow at the apex. Carry more speed next lap.",
+                f"Bit cautious through {name} — {k} kph down. Trust it "
+                f"more next time round.",
             ])
         return self._pick("live_exit", [
-            f"Lazy exit off {name} — earlier on the throttle.",
-            f"Lost the drive out of {name}. Power down sooner.",
+            f"You were slow on the throttle out of {name} — get on the "
+            f"power sooner.",
+            f"You lost the drive off {name}. Earlier on the throttle "
+            f"next time.",
         ])
 
     def _memory_words(self, finding, verdict, track_id) -> str:
         """Repeat-mistake phrasing — the engineer remembers."""
         name = trace.turn_name(track_id, finding.onset_m)
         if verdict.kind == "repeat":
-            return f"Same again at {name}."
+            return f"That's the same mistake again at {name}."
         fix = self.SHORT_ADVICE.get(finding.cause, "tidy it up")
-        return f"That's {verdict.streak} laps running at {name} — {fix}."
+        streak = _COUNT_WORDS.get(verdict.streak, verdict.streak)
+        return f"That's {streak} laps in a row now at {name} — {fix}."
 
     def _driving_note(self, r: SectorResult) -> str | None:
         stats, best = r.stats, r.best_stats
@@ -159,67 +193,94 @@ class RaceEngineer:
             return None
         speed_diff = stats.top_speed - best.top_speed
         if speed_diff <= -5:
-            return f"Down {abs(speed_diff)} on top speed."
+            return f"You're down about {abs(speed_diff)} kph on top speed."
         if stats.brake_count > best.brake_count:
-            return "Extra brake application."
+            return "You had an extra dab of brakes in there."
         if stats.full_throttle_pct - best.full_throttle_pct <= -5:
-            return "Less time on full throttle."
+            return "You spent less time at full throttle."
         return None
 
     # ---- sectors 1 and 2 (sector 3 is folded into the lap call) ----
     def sector_line(self, r: SectorResult, corner=None, track_id=None,
-                    verdict=None) -> str | None:
-        s = SECTOR_WORDS[r.sector]
+                    verdict=None, ref_delta_ms=None, ref_label=None) -> str | None:
+        ordinal = SECTOR_ORDINALS[r.sector]
         if self.race_mode:
-            return self._race_sector_line(r, s, corner, track_id)
-        if r.delta_ms is None:
-            return None  # no baseline yet — nothing worth air time
+            return self._race_sector_line(r, ordinal, corner, track_id)
         threshold = config.CALLOUT_MIN_DELTA_MS * (2 if self.quali_mode else 1)
-        fixed = (f"Better at {trace.turn_name(track_id, verdict.fixed_onset)}."
+        # A reference gap beyond a big moment isn't coaching, it's noise —
+        # fall back to self-comparison for this call.
+        use_ref = (ref_delta_ms is not None and ref_label
+                   and ref_delta_ms < BIG_MOMENT_MS)
+        fixed = (f"Much better at "
+                 f"{trace.turn_name(track_id, verdict.fixed_onset)} that time."
                  if verdict is not None and verdict.fixed_onset is not None
                  else None)
-        if r.is_best:
-            if fixed:
-                return f"Purple, sector {s}. {fixed}"
-            if abs(r.delta_ms) >= config.CALLOUT_MIN_DELTA_MS:
-                return f"Purple, sector {s}. Minus {_delta_words(r.delta_ms)}."
-            return f"Purple, sector {s}."
-        if r.delta_ms < threshold:
-            return fixed  # on pace — only an earned "better there" gets air
-        if r.delta_ms >= BIG_MOMENT_MS:
-            return self._pick("off", [
-                f"Off in sector {s}. Lap's gone.",
-                f"Big moment, sector {s}. Scrap the lap.",
-            ])
-        line = f"Plus {_delta_words(r.delta_ms)}, sector {s}."
-        if corner is not None and verdict is not None and verdict.kind in ("repeat", "streak"):
-            return f"{line} {self._memory_words(corner, verdict, track_id)}"
-        detail = (self._corner_words(corner, track_id) if corner is not None
-                  else self._driving_note(r))
-        return f"{line} {detail}" if detail else line
 
-    def _race_sector_line(self, r: SectorResult, s: str, corner, track_id) -> str | None:
-        """Race reference is stint pace, not the session-best hotlap.
-        Normal race variance gets silence; purples still get called."""
+        # An off is always relative to your own pace.
+        if r.delta_ms is not None and r.delta_ms >= BIG_MOMENT_MS:
+            return self._pick("off", [
+                f"Big moment in the {ordinal} sector — that lap's gone. "
+                f"Reset and go again.",
+                f"That was an off in the {ordinal} sector. Lap's done — "
+                f"focus on the next one.",
+            ])
+
         if r.is_best and r.delta_ms is not None:
-            return f"Purple, sector {s}."
+            lead = f"That's your best {ordinal} sector so far"
+            if abs(r.delta_ms) >= config.CALLOUT_MIN_DELTA_MS:
+                lead += f" — {_delta_phrase(r.delta_ms)} quicker"
+            lead += "."
+            if use_ref and abs(ref_delta_ms) >= threshold:
+                side = ("still " + _delta_phrase(ref_delta_ms) + " behind "
+                        if ref_delta_ms > 0
+                        else _delta_phrase(ref_delta_ms) + " ahead of ")
+                lead += f" You're {side}{ref_label} there."
+            if fixed:
+                return f"{lead} {fixed}"
+            return lead
+
+        delta = ref_delta_ms if use_ref else r.delta_ms
+        vs = f" to {ref_label}" if use_ref else ""
+        if delta is None:
+            return fixed
+        if delta >= threshold:
+            loss = (f"You lost {_delta_phrase(delta)}{vs} in the "
+                    f"{ordinal} sector.")
+            if (corner is not None and verdict is not None
+                    and verdict.kind in ("repeat", "streak")):
+                return f"{loss} {self._memory_words(corner, verdict, track_id)}"
+            detail = (self._corner_words(corner, track_id) if corner is not None
+                      else self._driving_note(r))
+            return f"{loss} {detail}" if detail else loss
+        if use_ref and delta <= -threshold:
+            return (f"Good {ordinal} sector — {_delta_phrase(delta)} "
+                    f"quicker than {ref_label}.")
+        return fixed  # on pace — only an earned "better there" gets air
+
+    def _race_sector_line(self, r: SectorResult, ordinal, corner,
+                          track_id) -> str | None:
+        """Race reference is stint pace, not the session-best hotlap.
+        Normal race variance gets silence; bests still get called."""
+        if r.is_best and r.delta_ms is not None:
+            return f"That's your best {ordinal} sector of the race."
         sd = r.stint_delta_ms
         if sd is None:
             return None
         if sd >= BIG_MOMENT_MS:
             return self._pick("off", [
-                f"Off in sector {s}. Keep it together.",
-                f"Big moment, sector {s}.",
+                f"Big moment in the {ordinal} sector — keep it together.",
+                f"That was a moment in the {ordinal} sector. Settle it back down.",
             ])
         if sd >= config.RACE_CALLOUT_MIN_DELTA_MS:
-            line = f"Plus {_delta_words(sd)} on stint pace, sector {s}."
+            line = (f"You're {_delta_phrase(sd)} off your stint pace in "
+                    f"the {ordinal} sector.")
             if corner is not None:
                 return f"{line} {self._corner_words(corner, track_id)}"
             return line
         return None
 
     def _gain_words(self, gains, track_id) -> str | None:
-        """Why the lap was faster — the top contributors, stated as facts."""
+        """Why the lap was faster — the top contributors, stated plainly."""
         real = sorted((g for g in gains if g.gain),
                       key=lambda g: g.score(), reverse=True)[:2]
         if not real:
@@ -228,29 +289,31 @@ class RaceEngineer:
         for g in real:
             name = trace.turn_name(track_id, g.onset_m)
             if g.cause == "carried_speed":
-                bits.append(f"carried {g.min_speed_diff} k more through {name}")
+                bits.append(f"carrying {g.min_speed_diff} kph more through {name}")
             elif g.cause == "later_brakes":
-                bits.append(f"later on the brakes into {name}")
+                bits.append(f"braking later into {name}")
             else:
-                bits.append(f"earlier on the power out of {name}")
-        joined = ", and ".join(bits)
-        return joined[0].upper() + joined[1:] + "."
+                bits.append(f"getting on the power earlier out of {name}")
+        return "You found that time by " + ", and ".join(bits) + "."
 
-    # ---- lap completion: at most two short sentences (three for a
-    # new best with an explanation — that's a deliberate moment) ----
+    # ---- lap completion ----
     def lap_line(self, s3: SectorResult, lap: LapResult, session=None,
-                 gains=None, theoretical_ms=None, track_id=None) -> str:
+                 gains=None, theoretical_ms=None, track_id=None,
+                 ref_delta_ms=None, ref_label=None) -> str:
         if self.race_mode:
             return self._race_lap_line(lap, session)
+        use_ref = (ref_delta_ms is not None and ref_label
+                   and abs(ref_delta_ms) < REF_MAX_TALK_MS)
+
         s3_part = None
         if s3.delta_ms is not None:
             if s3.is_best:
-                s3_part = "Purple, sector three."
+                s3_part = "Your best final sector so far."
             elif s3.delta_ms >= BIG_MOMENT_MS:
-                s3_part = "Off in the last sector."
+                s3_part = "You had a moment in the last sector."
             elif s3.delta_ms >= config.CALLOUT_MIN_DELTA_MS:
-                s3_part = f"Plus {_delta_words(s3.delta_ms)}, sector three."
-
+                s3_part = (f"You lost {_delta_phrase(s3.delta_ms)} in the "
+                           f"last sector.")
         # A plain s3 delta that matches the lap delta says nothing the lap
         # call won't — drop it rather than read the same number twice.
         if (s3_part and not s3.is_best and lap.delta_ms is not None
@@ -261,34 +324,57 @@ class RaceEngineer:
         tw = _lap_time_words(lap.lap_time_ms)
         twc = tw[0].upper() + tw[1:]
         if lap.invalid:
-            verdict = f"{twc}. Lap deleted — track limits."
+            verdict = (f"That was a {tw}, but the lap's been deleted — "
+                       f"track limits.")
         elif lap.delta_ms is None:
-            verdict = f"Baseline lap, {tw}."
+            if use_ref and abs(ref_delta_ms) >= config.CALLOUT_MIN_DELTA_MS:
+                side = ("off" if ref_delta_ms > 0 else "quicker than")
+                verdict = (f"First lap on the board — a {tw}. That's "
+                           f"{_delta_phrase(ref_delta_ms)} {side} "
+                           f"{ref_label}'s pace.")
+            else:
+                verdict = (f"First lap on the board — a {tw}. "
+                           f"I'll coach you off this one.")
         elif lap.is_best:
             explanation = self._gain_words(gains, track_id) if gains else None
+            verdict = f"New best lap — a {tw}."
             if explanation:
-                verdict = f"New best, {tw}. {explanation}"
-                if (theoretical_ms is not None
-                        and theoretical_ms <= lap.lap_time_ms - STRONG_BEST_MS):
-                    verdict += (f" Stack your best sectors and it's a "
-                                f"{_lap_time_words(theoretical_ms)}.")
+                verdict += f" {explanation}"
                 s3_part = None  # the explanation is the story
-            elif lap.delta_ms <= -STRONG_BEST_MS and s3_part is None:
-                verdict = f"New best, {tw}. Good lap."
+            if use_ref and abs(ref_delta_ms) >= config.CALLOUT_MIN_DELTA_MS:
+                if ref_delta_ms > 0:
+                    verdict += (f" Still {_delta_phrase(ref_delta_ms)} off "
+                                f"{ref_label}.")
+                else:
+                    verdict += (f" That puts you {_delta_phrase(ref_delta_ms)} "
+                                f"ahead of {ref_label}.")
+            elif (not explanation and theoretical_ms is not None
+                    and theoretical_ms <= lap.lap_time_ms - STRONG_BEST_MS):
+                verdict += (f" Put your best sectors together and there's a "
+                            f"{_lap_time_words(theoretical_ms)} in it.")
+        elif use_ref and abs(ref_delta_ms) >= config.CALLOUT_MIN_DELTA_MS:
+            if ref_delta_ms > 0:
+                verdict = (f"That's a {tw} — {_delta_phrase(ref_delta_ms)} "
+                           f"off {ref_label}'s pace.")
+                if s3_part is None and lap.worst_sector:
+                    verdict += (f" Most of it went in the "
+                                f"{SECTOR_ORDINALS[lap.worst_sector]} sector.")
             else:
-                verdict = f"New best, {tw}."
+                verdict = (f"That's a {tw} — {_delta_phrase(ref_delta_ms)} "
+                           f"quicker than {ref_label}. Keep doing that.")
         elif lap.delta_ms < config.CALLOUT_MIN_DELTA_MS:
-            verdict = f"{twc}, level with your best."
+            verdict = f"{twc} — level with your best."
         elif s3_part is None and lap.worst_sector:
-            verdict = (f"Plus {_delta_words(lap.delta_ms)}, most of it sector "
-                       f"{SECTOR_WORDS[lap.worst_sector]}. {twc}.")
+            verdict = (f"That's a {tw} — {_delta_phrase(lap.delta_ms)} "
+                       f"slower, most of it in the "
+                       f"{SECTOR_ORDINALS[lap.worst_sector]} sector.")
         else:
-            verdict = f"Plus {_delta_words(lap.delta_ms)}. {twc}."
+            verdict = f"That's a {tw} — {_delta_phrase(lap.delta_ms)} off your best."
 
         if s3_part:
             return f"{s3_part} {verdict}"
         note = None if self.quali_mode else self._context_note(lap, session)
-        if note and verdict.count(". ") == 0:  # keep the two-sentence cap
+        if note and verdict.count(". ") == 0:  # keep calls short
             return f"{verdict} {note}"
         return verdict
 
@@ -301,7 +387,7 @@ class RaceEngineer:
 
         if (lap.is_best and lap.delta_ms is not None
                 and lap.delta_ms <= -config.CALLOUT_MIN_DELTA_MS):
-            lead = f"Fastest lap, {tw}."
+            lead = f"That's the fastest lap of the race — a {tw}."
         elif pos:
             lead = f"P{pos}, {tw}."
         else:
@@ -309,9 +395,10 @@ class RaceEngineer:
 
         sd = lap.stint_delta_ms
         if sd is not None and sd >= config.RACE_CALLOUT_MIN_DELTA_MS and not lap.is_best:
-            second = f"Pace dropping — plus {_delta_words(sd)} on your stint."
+            second = (f"Your pace is dropping — {_delta_phrase(sd)} slower "
+                      f"than your stint average.")
         elif pos and pos > 1 and gap_ms and 0 < gap_ms < 60_000:
-            second = f"Gap ahead, {_delta_words(gap_ms)}."
+            second = f"The gap to the car ahead is {_delta_phrase(gap_ms)}."
         else:
             second = self._context_note(lap, session)
         return f"{lead} {second}" if second else lead
@@ -320,63 +407,69 @@ class RaceEngineer:
     def recap_words(self, r: dict | None, recurring=None, track_id=None,
                     prev_best_ms=None, weak_zones=None) -> str:
         if r is None or r["laps"] == 0:
-            return "Nothing on the board yet."
-        parts = [f"{r['laps']} laps on the board.",
-                 f"Best lap, {_lap_time_words(r['best_lap_ms'])}."]
+            return "Nothing on the board yet — get a lap in and I'll break it down."
+        parts = [f"Right — {r['laps']} laps on the board.",
+                 f"Your best was a {_lap_time_words(r['best_lap_ms'])}."]
         remaining = r["best_lap_ms"] - r["theoretical_ms"]
         if remaining > config.CALLOUT_MIN_DELTA_MS:
-            parts.append(f"Theoretical, {_lap_time_words(r['theoretical_ms'])} — "
-                         f"{_delta_words(remaining)} still on the table.")
+            parts.append(f"Put your best sectors together and you'd do a "
+                         f"{_lap_time_words(r['theoretical_ms'])} — there's "
+                         f"{_delta_phrase(remaining)} still on the table.")
         gap = r["weakest_gap_ms"]
         if gap >= config.CALLOUT_MIN_DELTA_MS:
-            parts.append(f"Most time's going in sector "
-                         f"{SECTOR_WORDS[r['weakest_sector']]} — "
-                         f"{_delta_words(gap)} a lap. Strongest is sector "
-                         f"{SECTOR_WORDS[r['strongest_sector']]}.")
+            parts.append(f"Most of your time is going in the "
+                         f"{SECTOR_ORDINALS[r['weakest_sector']]} sector — "
+                         f"about {_delta_phrase(gap)} every lap. Your "
+                         f"strongest is the "
+                         f"{SECTOR_ORDINALS[r['strongest_sector']]}.")
         else:
-            parts.append("Sectors are even.")
-        CAUSE_WORDS = {"braked_early": "braking early",
-                       "overslowed": "apex speed",
-                       "slow_exit": "slow exit"}
+            parts.append("Your sectors are nice and even.")
+        CAUSE_WORDS = {"braked_early": "braking too early",
+                       "overslowed": "losing apex speed",
+                       "slow_exit": "slow exits"}
         if weak_zones and len(weak_zones) >= 2:
-            bits = [f"{trace.turn_name(track_id, onset_m)}, "
+            bits = [f"{trace.turn_name(track_id, onset_m)} — "
                     f"{CAUSE_WORDS.get(cause, cause)}"
                     for onset_m, cause, avg, laps in weak_zones[:3]]
-            parts.append("Biggest losses: " + "; ".join(bits) + ".")
+            parts.append("Your biggest losses were at " + "; ".join(bits) + ".")
             top_onset, top_cause, top_avg, top_laps = weak_zones[0]
             fix = self.SHORT_ADVICE.get(top_cause, "tidy it up")
-            unit = "metres" if top_cause == "braked_early" else "k"
-            parts.append(f"Practice focus: {fix} at "
-                         f"{trace.turn_name(track_id, top_onset)} — "
-                         f"{top_laps} laps, about {top_avg} {unit}.")
+            unit = "metres" if top_cause == "braked_early" else "kph"
+            parts.append(f"If you practise one thing, {fix} at "
+                         f"{trace.turn_name(track_id, top_onset)} — that one "
+                         f"cost you on {top_laps} laps, about {top_avg} {unit} "
+                         f"each time.")
         elif recurring is not None:
             onset_m, cause, avg, laps = recurring
             name = trace.turn_name(track_id, onset_m)
             what = CAUSE_WORDS.get(cause, cause)
-            unit = "metres" if cause == "braked_early" else "k"
+            unit = "metres" if cause == "braked_early" else "kph"
             fix = self.SHORT_ADVICE.get(cause, "tidy it up")
-            parts.append(f"Recurring issue: {what} at {name} — {laps} laps, "
-                         f"about {avg} {unit}. Practice focus: {fix} there.")
+            parts.append(f"Your recurring one is {what} at {name} — it cost "
+                         f"you on {laps} laps, about {avg} {unit} each time. "
+                         f"If you practise one thing, {fix}.")
         improvement = r.get("improvement_ms")
         if improvement is not None and improvement >= 300:
-            parts.append(f"Pace came on {_delta_words(improvement)} "
+            parts.append(f"Your pace came on by {_delta_phrase(improvement)} "
                          f"over the session.")
         sd = r["consistency_ms"]
         if sd is not None:
-            parts.append("Consistency's good." if sd < 300 else
-                         f"Consistency, plus or minus {_delta_words(sd)}.")
+            parts.append("Your consistency's good." if sd < 300 else
+                         f"Lap times are swinging by about "
+                         f"{_delta_phrase(sd)} — worth tightening up.")
         if prev_best_ms is not None:
             diff = r["best_lap_ms"] - prev_best_ms
             if diff <= -config.CALLOUT_MIN_DELTA_MS:
-                parts.append(f"{_delta_words(diff).capitalize()} up on your "
-                             f"last session here.")
+                parts.append(f"And you're {_delta_phrase(diff)} quicker than "
+                             f"your last session here. Good progress.")
             elif diff >= config.CALLOUT_MIN_DELTA_MS:
-                parts.append(f"Still {_delta_words(diff)} off your last "
-                             f"session here.")
+                parts.append(f"You're still {_delta_phrase(diff)} off your "
+                             f"last session here.")
         return " ".join(parts)
 
     def track_history_line(self, best_ms: int) -> str:
-        return f"Last time here, best was a {_lap_time_words(best_ms)}."
+        return (f"Last time you were here, your best was a "
+                f"{_lap_time_words(best_ms)}.")
 
     def _context_note(self, lap: LapResult, session) -> str | None:
         """One factual status line, priority: trap speed, tyres, fuel."""
@@ -385,14 +478,14 @@ class RaceEngineer:
         trap_kph = session.speed_trap_kph or 0
         if trap_kph and lap.lap_num >= 2 and trap_kph >= self._trap_announced + 3:
             self._trap_announced = trap_kph
-            return f"Best trap speed, {round(trap_kph)}."
+            return f"Best top speed so far — {round(trap_kph)} kph."
         age = session.tyre_age_laps
         if age is not None and age >= self._next_tyre_note:
             self._next_tyre_note = age + 4
-            return f"Tyres at {age} laps."
+            return f"Those tyres are {age} laps old now."
         fuel = session.fuel_remaining_laps
         if (fuel is not None and self._fuel_thresholds
                 and 0 < fuel < self._fuel_thresholds[0]):
             self._fuel_thresholds.pop(0)
-            return f"Fuel at {fuel:.1f} laps."
+            return f"You've got about {fuel:.1f} laps of fuel left."
         return None

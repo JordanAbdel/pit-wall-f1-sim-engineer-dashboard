@@ -201,6 +201,45 @@
   .recap-summary { font-family: 'Barlow Condensed', sans-serif; font-size: 16px;
                    letter-spacing: 0.5px; color: var(--text); line-height: 1.45; }
 
+  /* Onboarding wizard + FAQ */
+  .ob-body { font-family: 'Barlow Condensed', sans-serif; font-size: 16px;
+             letter-spacing: 0.5px; color: var(--text); line-height: 1.55;
+             min-height: 230px; }
+  .ob-body h3 { margin: 0 0 8px 0; font-size: 18px; letter-spacing: 2px;
+                color: var(--text); }
+  .ob-body p { margin: 0 0 10px 0; color: var(--dim); }
+  .ob-body b { color: var(--text); }
+  .ob-table { width: 100%; border-collapse: collapse; margin: 8px 0 10px 0;
+              font-family: 'IBM Plex Mono', monospace; font-size: 13px; }
+  .ob-table td { border-bottom: 1px solid var(--border); padding: 6px 8px;
+                 color: var(--dim); }
+  .ob-table td:last-child { color: var(--purple); text-align: right;
+                            font-weight: 600; }
+  .ob-foot { display: flex; align-items: center; justify-content: space-between; }
+  .ob-dots { display: flex; gap: 6px; }
+  .ob-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+  .ob-dot.active { background: var(--purple); }
+  .ob-btns { display: flex; gap: 10px; }
+  .ob-btns .auth-btn { width: auto; padding: 8px 22px; }
+  .faq-scroll { max-height: 55vh; overflow-y: auto; }
+  .faq-item { border-bottom: 1px solid var(--border); }
+  .faq-item summary { cursor: pointer; padding: 11px 0;
+                      font-family: 'Barlow Condensed', sans-serif;
+                      font-size: 16px; font-weight: 600; letter-spacing: 1px;
+                      color: var(--text); list-style: none; }
+  .faq-item summary::-webkit-details-marker { display: none; }
+  .faq-item summary::before { content: '+  '; color: var(--purple); }
+  .faq-item[open] summary::before { content: '−  '; }
+  .faq-item p { margin: 0 0 12px 0; font-family: 'Barlow Condensed', sans-serif;
+                font-size: 14.5px; color: var(--dim); line-height: 1.55;
+                letter-spacing: 0.5px; }
+  .faq-item code { font-family: 'IBM Plex Mono', monospace; font-size: 12.5px;
+                   color: var(--purple); }
+
+  /* Reference (rival / target) */
+  .sector-ref { font-family: 'IBM Plex Mono', monospace; font-size: 13px;
+                font-weight: 600; letter-spacing: 0.5px; }
+
   /* View tabs */
   .view-tabs { display: flex; gap: 6px; }
   .view-tab { font-family: 'Barlow Condensed', sans-serif; font-size: 14px;
@@ -266,6 +305,7 @@
         <span id="accountEmail"></span>
         <button id="accountLogout">LOGOUT</button>
       </span>
+      <button class="recap-btn" id="helpBtn">HELP</button>
       <button class="recap-btn" id="recapBtn">RECAP</button>
     </div>
   </div>
@@ -341,6 +381,11 @@
       <div class="stat-title">THEORETICAL BEST</div>
       <div class="mono stat-value" id="theoreticalBest">–:––.–––</div>
     </div>
+    <div class="panel stat" id="refPanel" style="display: none;">
+      <div class="stat-title" id="refTitle">TARGET LAP</div>
+      <div class="mono stat-value" id="refLap">–:––.–––</div>
+      <div class="stat-caption mono" id="refGap"></div>
+    </div>
     <div class="panel stat">
       <div class="tyre-head">
         <div class="stat-title">TYRE</div>
@@ -400,6 +445,34 @@
       </div>
       <div id="recapBody"></div>
       <div class="recap-summary" id="recapSummary"></div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="onboardOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title" id="obTitle">GETTING SET UP</div>
+        <button class="modal-close" id="obClose">SKIP ✕</button>
+      </div>
+      <div class="ob-body" id="obBody"></div>
+      <div class="ob-foot">
+        <div class="ob-dots" id="obDots"></div>
+        <div class="ob-btns">
+          <button class="auth-btn" id="obBack">BACK</button>
+          <button class="auth-btn primary" id="obNext">NEXT</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="helpOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">HELP &amp; FAQ</div>
+        <button class="modal-close" id="helpClose">CLOSE ✕</button>
+      </div>
+      <div class="faq-scroll" id="faqBody"></div>
+      <button class="auth-btn" id="faqSetupBtn">OPEN THE SETUP GUIDE</button>
     </div>
   </div>
 
@@ -704,6 +777,13 @@ function render() {
         story.gained.map((b) => `<div class="story-gain">+ ${b.label} ${b.what}</div>`).join('') +
         `</div>`;
     }
+    let refHtml = '';
+    const refS = s.reference && s.reference.sectors;
+    if (refS && done) {
+      const rd = partials[i] - refS[i];
+      const lbl = s.reference.source === 'rival' ? 'RIVAL' : 'TARGET';
+      refHtml = `<div class="sector-ref" style="color:${rd <= 0 ? C.green : C.yellow}">VS ${lbl} ${fmtDelta(rd)}</div>`;
+    }
     return `<div class="panel sector-box" style="border-color:${border}; box-shadow: inset 0 3px 0 ${topBar}">
       <div class="sector-head">
         <div class="sector-label">SECTOR ${i + 1}</div>
@@ -714,6 +794,7 @@ function render() {
         <div class="mono sector-delta" style="color:${deltaColor}">${delta}</div>
         <div class="mono sector-best">BEST ${bestTxt}</div>
       </div>
+      ${refHtml}
       ${storyHtml}
     </div>`;
   }).join('');
@@ -758,6 +839,24 @@ function render() {
   // Summary strip
   $('bestLap').textContent = bestLapT !== null ? fmtLap(bestLapT) : '–:––.–––';
   $('theoreticalBest').textContent = bests ? fmtLap(bests[0] + bests[1] + bests[2]) : '–:––.–––';
+
+  // Reference (Time Trial rival, or the track target table)
+  const ref = s.reference;
+  if (ref && ref.lapMs) {
+    $('refPanel').style.display = 'flex';
+    $('refTitle').textContent = ref.source === 'rival' ? 'RIVAL BEST' : 'TARGET LAP';
+    $('refLap').textContent = fmtLap(ref.lapMs);
+    if (bestLapT !== null) {
+      const d = bestLapT - ref.lapMs;
+      $('refGap').textContent = fmtDelta(d) + ' VS YOUR BEST';
+      $('refGap').style.color = d <= 0 ? C.green : C.yellow;
+    } else {
+      $('refGap').textContent = 'SET A LAP TO COMPARE';
+      $('refGap').style.color = C.faint;
+    }
+  } else {
+    $('refPanel').style.display = 'none';
+  }
 
   const compound = s.compound ?? '–';
   $('tyreCompound').textContent = compound;
@@ -1056,6 +1155,7 @@ function renderAuth() {
     if (a.offline && !msgEl.textContent) msgEl.textContent = OFFLINE_MSG;
     else if (!a.offline && msgEl.textContent === OFFLINE_MSG) msgEl.textContent = '';
   }
+  if (a && !gated) maybeShowOnboarding();
   const chip = $('accountChip');
   if (a && a.configured && a.entitled && a.loggedIn) {
     $('accountEmail').textContent = `${a.email} · ${(a.status || '').toUpperCase()}`;
@@ -1156,6 +1256,129 @@ async function initAuth() {
   }
 }
 initAuth();
+
+// ---- onboarding wizard + FAQ ----
+function obIp() { return (sbConfig && sbConfig.lanIp) || "this computer's IP"; }
+function obPort() { return (sbConfig && sbConfig.udpPort) || 20777; }
+
+function obSteps() {
+  return [
+    `<h3>WELCOME TO PITWALL</h3>
+     <p>PitWall listens to F1 25's live telemetry and works as your race
+     engineer — spoken coaching after every sector and lap, corner-by-corner
+     advice, and this live pit-wall dashboard.</p>
+     <p>Connecting the game takes about two minutes. This guide walks you
+     through it — you can reopen it any time from <b>HELP</b>.</p>`,
+    `<h3>CONNECT F1 25</h3>
+     <p>In F1 25, go to <b>Settings → Telemetry Settings</b> and set:</p>
+     <table class="ob-table">
+       <tr><td>UDP Telemetry</td><td>On</td></tr>
+       <tr><td>UDP Broadcast Mode</td><td>Off</td></tr>
+       <tr><td>UDP IP Address</td><td>${obIp()}</td></tr>
+       <tr><td>UDP Port</td><td>${obPort()}</td></tr>
+       <tr><td>UDP Send Rate</td><td>20 Hz or higher</td></tr>
+       <tr><td>UDP Format</td><td>2025</td></tr>
+     </table>
+     <p>Your console and this computer must be on the <b>same Wi-Fi
+     network</b>.</p>`,
+    `<h3>DRIVE</h3>
+     <p>Get on track. The badge in the top-right flips from <b>NO SIGNAL</b>
+     to <b>LIVE</b> when telemetry arrives, and the engineer does a radio
+     check.</p>
+     <p>He talks to you after each sector and lap — where you lost time, why,
+     and what to try next. In Time Trial he compares you against your
+     <b>rival ghost</b>; elsewhere against the track target or your own
+     best.</p>
+     <p><b>RECAP</b> gives you a full session debrief any time, and
+     <b>HELP</b> is always in the top-right if something's not working.</p>`,
+  ];
+}
+
+let obStep = 0, obChecked = false;
+function renderOb() {
+  const steps = obSteps();
+  $('obBody').innerHTML = steps[obStep];
+  $('obDots').innerHTML = steps.map((_, i) =>
+    `<span class="ob-dot${i === obStep ? ' active' : ''}"></span>`).join('');
+  $('obBack').style.visibility = obStep === 0 ? 'hidden' : 'visible';
+  $('obNext').textContent = obStep === steps.length - 1 ? 'DONE' : 'NEXT';
+}
+function openOnboarding() {
+  obStep = 0;
+  renderOb();
+  $('onboardOverlay').classList.add('open');
+}
+function closeOnboarding() {
+  $('onboardOverlay').classList.remove('open');
+  try { localStorage.setItem('pitwallOnboarded', '1'); } catch (e) {}
+}
+function maybeShowOnboarding() {
+  if (obChecked) return;
+  obChecked = true;
+  let seen = null;
+  try { seen = localStorage.getItem('pitwallOnboarded'); } catch (e) {}
+  if (!seen) openOnboarding();
+}
+$('obNext').addEventListener('click', () => {
+  if (obStep >= obSteps().length - 1) closeOnboarding();
+  else { obStep++; renderOb(); }
+});
+$('obBack').addEventListener('click', () => {
+  if (obStep > 0) { obStep--; renderOb(); }
+});
+$('obClose').addEventListener('click', closeOnboarding);
+
+function faqHtml() {
+  const item = (q, a) =>
+    `<details class="faq-item"><summary>${q}</summary><p>${a}</p></details>`;
+  return (
+    item('The dashboard says NO SIGNAL',
+      `Work down this list: UDP Telemetry is <b>On</b> in F1 25's Telemetry
+       Settings · the UDP IP Address is <code>${obIp()}</code> · the port is
+       <code>${obPort()}</code> and the format is <code>2025</code> · the
+       console and this computer are on the same Wi-Fi network · and you're
+       actually on track, not sitting in a menu. If your Wi-Fi changed
+       recently, your computer's IP may have changed too — re-check it in
+       the setup guide below.`) +
+    item('macOS blocked the app ("could not verify…")',
+      `That's normal for beta software from outside the App Store.
+       Right-click <code>PitWall.command</code> → <b>Open</b> → confirm
+       <b>Open</b>. Only needed once. If that fails: System Settings →
+       Privacy &amp; Security → scroll down → <b>Open Anyway</b>.`) +
+    item("There's no voice",
+      `The voice model takes a few seconds to warm up after launch. Check
+       your volume and output device. If the natural voice can't load, the
+       app falls back to a robotic built-in voice rather than going silent —
+       if you hear nothing at all on a completed lap, grab the log file
+       (below) and send it in.`) +
+    item('The dashboard looks stuck or is showing an old session',
+      `Close the Terminal window running PitWall and start it again — a
+       fresh start guarantees a clean slate. It normally detects new
+       sessions on its own.`) +
+    item('Is the subscription charging real money?',
+      `Not during the beta — billing runs in Stripe <b>test mode</b>.
+       Use card <code>4242 4242 4242 4242</code>, any future expiry, any
+       CVC. No real payment method is needed and no money moves.`) +
+    item('Something broke — how do I report it?',
+      `The Terminal window prints a log path when PitWall starts, like
+       <code>…/PitWall/logs/pitwall.log</code>. Send that file with a quick
+       note about what happened — it records everything up to the problem
+       and beats a screenshot every time.`));
+}
+$('helpBtn').addEventListener('click', () => {
+  $('faqBody').innerHTML = faqHtml();
+  $('helpOverlay').classList.add('open');
+});
+$('helpClose').addEventListener('click', () => $('helpOverlay').classList.remove('open'));
+$('faqSetupBtn').addEventListener('click', () => {
+  $('helpOverlay').classList.remove('open');
+  openOnboarding();
+});
+[['onboardOverlay', closeOnboarding],
+ ['helpOverlay', () => $('helpOverlay').classList.remove('open')]]
+  .forEach(([id, close]) => $(id).addEventListener('click', (e) => {
+    if (e.target === $(id)) close();
+  }));
 </script>
 </body>
 </html>

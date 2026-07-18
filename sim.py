@@ -128,6 +128,19 @@ def telemetry_packet(session_time, frame, speed_kph, throttle=0.95, brake=0.0) -
     return header(packets.CAR_TELEMETRY, session_time, frame) + bytes(cars) + b"\x00\x00\x00"
 
 
+def time_trial_packet(session_time, frame) -> bytes:
+    """Time Trial data sets — only the rival matters to the app. The rival
+    ghost runs a 1:41.0 (30.6 / 42.35 / 28.05), a shade under the script's
+    best lap, so rival-reference callouts fire realistically."""
+    def data_set(lap_ms, s1, s2, s3):
+        return packets.TT_DATA_SET.pack(PLAYER_IDX, 9, lap_ms, s1, s2, s3,
+                                        0, 0, 0, 1, 0, 1)
+    body = (data_set(0, 0, 0, 0)                        # session best
+            + data_set(0, 0, 0, 0)                      # personal best
+            + data_set(101000, 30600, 42350, 28050))    # rival
+    return header(packets.TIME_TRIAL, session_time, frame) + body
+
+
 def session_history_packet(session_time, frame, completed) -> bytes:
     """completed: list of (lap_ms, s1_ms, s2_ms, s3_ms) for finished laps."""
     def best_lap_num(key):
@@ -155,10 +168,12 @@ def main() -> None:
                         help="time compression factor (20 = a 1:42 lap in ~5s)")
     parser.add_argument("--race", action="store_true",
                         help="simulate a race session (P4, gaps) instead of practice")
+    parser.add_argument("--rival", action="store_true",
+                        help="simulate Time Trial with a rival ghost (1:41.0)")
     parser.add_argument("--flags", action="store_true",
                         help="script a yellow, a safety car, a red flag and the chequered flag")
     args = parser.parse_args()
-    session_type = 15 if args.race else 1
+    session_type = 15 if args.race else (18 if args.rival else 1)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     target = (args.host, args.port)
@@ -167,9 +182,11 @@ def main() -> None:
                        ("telemetry", len(telemetry_packet(0, 0, 280))),
                        ("session history", len(session_history_packet(0, 0, []))),
                        ("session", len(session_packet(0, 0))),
-                       ("car damage", len(car_damage_packet(0, 0, 10.0)))]:
+                       ("car damage", len(car_damage_packet(0, 0, 10.0))),
+                       ("time trial", len(time_trial_packet(0, 0)))]:
         expected = {"lap data": 1285, "car status": 1239, "telemetry": 1352,
-                    "session history": 1460, "session": 753, "car damage": 1041}[name]
+                    "session history": 1460, "session": 753, "car damage": 1041,
+                    "time trial": 101}[name]
         assert size == expected, f"{name}: built {size} bytes, spec says {expected}"
 
     print(f"Sending scripted 3-lap stint to {target[0]}:{target[1]} "
@@ -218,6 +235,8 @@ def main() -> None:
                 sock.sendto(session_history_packet(sim_t, frame, completed), target)
                 sock.sendto(session_packet(sim_t, frame, session_type,
                                            yellow, sc), target)
+                if args.rival:
+                    sock.sendto(time_trial_packet(sim_t, frame), target)
             t += tick
             sim_t += tick
             time.sleep(tick / args.speed)

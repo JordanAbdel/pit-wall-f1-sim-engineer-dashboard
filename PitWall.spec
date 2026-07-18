@@ -3,7 +3,8 @@ import os
 
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('dashboard.html', '.'), ('models', 'models')]
+datas = [('dashboard.html', '.'), ('models', 'models'),
+         ('benchmarks.json', '.')]
 # Bake the licensing config into the bundle (config.py falls back to
 # BUNDLE_DIR/.env) — a frozen build must not be strippable into LOCAL DEV
 # MODE by deleting a file next to the exe.

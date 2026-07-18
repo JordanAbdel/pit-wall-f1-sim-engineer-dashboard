@@ -25,6 +25,7 @@ import cloud as cloud_mod
 import config
 import driver_db
 import packets
+import reference
 import trace
 from analysis import Analyzer
 from brain import RaceEngineer
@@ -90,8 +91,21 @@ class Engineer:
         self._db = driver_db.load()
         self._history_announced = False
         self._wear_pct = None
+        self.reference = reference.ReferenceTimes()
         self._reset_traces()
         self._reset_flags()
+
+    def _ref_args(self, time_ms: int, sector: int | None = None) -> dict:
+        """ref_delta_ms/ref_label kwargs for brain calls — empty when the
+        reference is just the driver's own bests (original behaviour)."""
+        if self.reference.source == "self":
+            return {}
+        target = (self.reference.sector_target(sector) if sector
+                  else self.reference.lap_target())
+        if not target:
+            return {}
+        return {"ref_delta_ms": time_ms - target,
+                "ref_label": self.reference.label()}
 
     def _reset_flags(self):
         self._sc_status = 0
@@ -171,6 +185,7 @@ class Engineer:
             self.memory = CornerMemory()
             self._stories = {}
             self._history_announced = False
+            self.reference = reference.ReferenceTimes()
             self._reset_traces()
             self._reset_flags()
             if self.dash:
@@ -225,6 +240,7 @@ class Engineer:
             self._race_mode = info.session_type in RACE_SESSION_TYPES
             self.brain.race_mode = self._race_mode
             self.brain.quali_mode = info.session_type in QUALI_SESSION_TYPES
+            self.reference.set_track(info.track_id)
             self._check_session_flags(packets.parse_session_flags(data))
             if not self._history_announced:
                 self._history_announced = True
@@ -237,7 +253,8 @@ class Engineer:
                 label = " · ".join(p.upper() for p in (track, session, "F1 25") if p)
                 self.dash.update(sessionLabel=label, paused=bool(info.game_paused),
                                  trackId=info.track_id,
-                                 trackLength=info.track_length)
+                                 trackLength=info.track_length,
+                                 reference=self.reference.state())
         elif header.packet_id == packets.CAR_DAMAGE:
             wear = packets.parse_tyre_wear(data, header.player_car_index)
             self._wear_pct = round(sum(wear) / 4, 1)
@@ -256,6 +273,11 @@ class Engineer:
                       tel.speed_kph, tel.throttle, tel.brake, tel.gear)
         elif header.packet_id == packets.SESSION_HISTORY:
             self._check_history(data, header)
+        elif header.packet_id == packets.TIME_TRIAL:
+            tt = packets.parse_time_trial(data)
+            self.reference.update_rival(tt.rival)
+            if self.dash:
+                self.dash.update(reference=self.reference.state())
 
     def _on_event(self, event) -> None:
         if isinstance(event, SectorComplete):
@@ -284,7 +306,10 @@ class Engineer:
                                   in self._live_called_zones)
                 corner = (worst if self._corner_gate(result)
                           and not already_called else None)
-                line = self.brain.sector_line(result, corner, self._track_id, verdict)
+                self.reference.update_own(self.analyzer.best_sectors)
+                line = self.brain.sector_line(
+                    result, corner, self._track_id, verdict,
+                    **self._ref_args(result.time_ms, result.sector))
                 if line:
                     if worst is not None and (corner is not None or (
                             verdict and verdict.kind in ("repeat", "streak"))):
@@ -309,9 +334,11 @@ class Engineer:
                                             0, self._cur_trace.max_dist)
             bests = self.analyzer.best_sectors
             theoretical = sum(bests.values()) if all(bests.values()) else None
+            self.reference.update_own(bests)
             if self._pending_s3 is not None:
-                self._say(self.brain.lap_line(self._pending_s3, result, self.state,
-                                              gains, theoretical, self._track_id))
+                self._say(self.brain.lap_line(
+                    self._pending_s3, result, self.state, gains, theoretical,
+                    self._track_id, **self._ref_args(result.lap_time_ms)))
                 self._pending_s3 = None
             self._laps_seen += 1
             if self.dash:

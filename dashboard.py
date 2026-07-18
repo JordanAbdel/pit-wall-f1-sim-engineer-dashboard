@@ -8,6 +8,7 @@ Dashboard.update()/add_lap(); HTTP threads only read.
 """
 import json
 import logging
+import socket
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,20 @@ log = logging.getLogger("dashboard")
 
 HTML_PATH = config.BUNDLE_DIR / "dashboard.html"
 LIVE_TIMEOUT_S = 2.0
+
+
+def lan_ip() -> str:
+    """This machine's LAN address — what the console's UDP IP setting must
+    be. The connect() never sends a packet; it just picks the route."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return ""
 
 
 class Dashboard:
@@ -46,6 +61,7 @@ class Dashboard:
             "weakTurns": [],       # session's worst corners, for map + recap
             "trackLength": 0,      # metres, for map position mapping
             "lapDistanceM": 0,     # live car position along the lap
+            "reference": {"source": "self", "lapMs": None, "sectors": None},
         }
         self._server = None
         self.on_recap = None  # set by the engineer; called from HTTP threads
@@ -96,6 +112,7 @@ class Dashboard:
         allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}"}
         allowed_origins = {f"http://{h}" for h in allowed_hosts}
         rejected_once = set()
+        _lan_ip = lan_ip()  # once — it's shown in the setup guide
 
         class Handler(BaseHTTPRequestHandler):
             def _request_ok(self) -> bool:
@@ -128,6 +145,8 @@ class Dashboard:
                         "supabaseUrl": config.SUPABASE_URL,
                         "supabaseAnonKey": config.SUPABASE_ANON_KEY,
                         "checkoutUrl": config.CHECKOUT_FUNCTION_URL,
+                        "lanIp": _lan_ip,
+                        "udpPort": config.PORT,
                     }).encode()
                     self._send(200, "application/json", body)
                 elif self.path == "/auth/state":
