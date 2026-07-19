@@ -729,7 +729,8 @@ function render() {
   $('sessionLabel').textContent = s.sessionLabel;
   renderTrackMap(s.trackId);
   updateMapOverlays(s);
-  const badge = s.live ? { label: 'LIVE', color: C.red }
+  const badge = serverDown ? { label: 'APP CLOSED', color: C.faint }
+    : s.live ? { label: 'LIVE', color: C.red }
     : s.hasSignal ? { label: 'PAUSED', color: C.yellow }
     : { label: 'NO SIGNAL', color: C.faint };
   $('liveLabel').textContent = badge.label;
@@ -959,7 +960,7 @@ function renderTrackMap(trackId) {
     $('mapWeakList').innerHTML = '<span class="empty-note">' +
       (trackId == null
         ? 'GET ON TRACK IN F1 25 — THE MAP APPEARS WITH THE SESSION'
-        : 'CIRCUIT OUTLINES EXIST FOR SPA AND SILVERSTONE SO FAR') + '</span>';
+        : 'NO OUTLINE FOR THIS CIRCUIT YET — TELL JORDAN WHICH TRACK THIS IS') + '</span>';
     return;
   }
   panel.style.display = 'flex';
@@ -1112,13 +1113,26 @@ $('recapOverlay').addEventListener('click', (e) => {
   if (e.target === $('recapOverlay')) $('recapOverlay').classList.remove('open');
 });
 
+// If the Python process dies, say so — a frozen "LIVE" badge with a
+// ticking clock is a lie. ~10 consecutive failed polls ≈ 2 s.
+let pollFails = 0, serverDown = false;
+
 async function poll() {
   try {
     const res = await fetch('/state.json');
     state = await res.json();
     receivedAt = performance.now();
+    pollFails = 0;
+    serverDown = false;   // self-heals when the app comes back
     render();
-  } catch (e) { /* server restarting — keep last frame */ }
+  } catch (e) {
+    if (++pollFails === 10 && state) {
+      serverDown = true;
+      state.live = false;       // freezes the lap clock (drift is gated on live)
+      state.hasSignal = false;
+      render();
+    }
+  }
 }
 
 setInterval(poll, 200);
@@ -1188,13 +1202,24 @@ async function handleLogin(signup) {
       msg.textContent = 'Check your email to confirm the account, then log in.';
       return;
     }
-    await fetch('/auth/session', {
-      method: 'POST',
-      body: JSON.stringify({
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
-      }),
-    });
+    // Supabase accepted the login — now hand the tokens to the app. If
+    // that fails, say so: otherwise the browser looks logged in while
+    // the engine stays gated.
+    let handoff = null;
+    try {
+      handoff = await fetch('/auth/session', {
+        method: 'POST',
+        body: JSON.stringify({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        }),
+      });
+    } catch (e) { /* handled below */ }
+    if (!handoff || !handoff.ok) {
+      msg.textContent = "Logged in, but couldn't reach the PitWall app — "
+        + 'is it still running? Restart it and try again.';
+      return;
+    }
     msg.textContent = '';
     pollAuth();
   } catch (e) { msg.textContent = 'Login failed: ' + e.message; }
