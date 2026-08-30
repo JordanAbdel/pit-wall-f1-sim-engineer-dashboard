@@ -60,8 +60,10 @@ class Dashboard:
             "recurring": None,     # most repeated mistake, for the recap
             "weakTurns": [],       # session's worst corners, for map + recap
             "trackLength": 0,      # metres, for map position mapping
+            "trackPath": None,     # outline recorded from real driving
             "lapDistanceM": 0,     # live car position along the lap
-            "reference": {"source": "self", "lapMs": None, "sectors": None},
+            "reference": {"source": "self", "lapMs": None, "sectors": None,
+                          "goalMs": None},
         }
         self._server = None
         self.on_recap = None  # set by the engineer; called from HTTP threads

@@ -36,7 +36,9 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
 CHECKOUT_FUNCTION_URL = (f"{SUPABASE_URL}/functions/v1/create-checkout"
                          if SUPABASE_URL else "")
 
-# Network — Xbox must be set to send UDP telemetry to this Mac's LAN IP on this port.
+# Network — Xbox must be set to send UDP telemetry to this Mac's LAN IP on
+# this port. The UDP format setting is not important: packet formats 2020
+# through 2025 are all decoded (see formats.py).
 BIND_IP = "0.0.0.0"
 PORT = 20777
 

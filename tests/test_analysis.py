@@ -74,3 +74,52 @@ def test_session_recap():
     assert r["weakest_sector"] in (1, 2, 3)
     assert r["consistency_ms"] is not None
     assert session_recap([]) is None
+
+
+# --- provisional baselines from invalid laps --------------------------------
+
+def _sector(analyzer, lap, sector, ms, invalid):
+    from state import SectorComplete
+    return analyzer.on_sector(
+        SectorComplete(lap_num=lap, sector=sector, time_ms=ms,
+                       lap_invalid=invalid, stats=None))
+
+
+def test_invalid_lap_seeds_a_baseline_when_nothing_valid_exists():
+    """Time Trial deletes most laps for track limits. Without this, a sector
+    the driver always runs wide in never gets a baseline, so delta stays None
+    and that sector is never coached."""
+    a = Analyzer()
+    r1 = _sector(a, 1, 3, 36_000, invalid=True)
+    assert r1.delta_ms is None          # nothing to compare the first one to
+    assert not r1.is_best               # an invalid lap is never a "personal best"
+    assert a.best_sectors[3] == 36_000  # ...but it does seed the baseline
+    assert not a.best_sector_valid[3]
+
+    r2 = _sector(a, 2, 3, 36_500, invalid=True)
+    assert r2.delta_ms == 500           # coaching now has something to say
+
+
+def test_a_valid_time_always_replaces_a_provisional_one_even_if_slower():
+    a = Analyzer()
+    _sector(a, 1, 1, 28_000, invalid=True)     # provisional, possibly a cut
+    assert a.best_sectors[1] == 28_000 and not a.best_sector_valid[1]
+
+    _sector(a, 2, 1, 28_400, invalid=False)    # slower, but legitimate
+    assert a.best_sectors[1] == 28_400
+    assert a.best_sector_valid[1]
+
+    # once valid, a slower valid lap must not replace it
+    _sector(a, 3, 1, 28_900, invalid=False)
+    assert a.best_sectors[1] == 28_400
+    # and an invalid lap can no longer take over, however quick
+    _sector(a, 4, 1, 27_000, invalid=True)
+    assert a.best_sectors[1] == 28_400
+
+
+def test_faster_invalid_lap_still_improves_a_provisional_baseline():
+    a = Analyzer()
+    _sector(a, 1, 2, 19_500, invalid=True)
+    _sector(a, 2, 2, 19_100, invalid=True)
+    assert a.best_sectors[2] == 19_100
+    assert not a.best_sector_valid[2]

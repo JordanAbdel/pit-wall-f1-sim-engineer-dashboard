@@ -7,7 +7,9 @@ Usage:
   python3 main.py --no-tts   # everything except voice (console only)
 
 Xbox setup: Settings -> Telemetry Settings -> UDP Telemetry ON,
-IP = this Mac's LAN IP, port 20777, UDP format 2025.
+IP = this Mac's LAN IP, port 20777. Any UDP format from 2020 to 2025
+works — the format is detected from the first packet and decoded by the
+matching codec in formats.py, so no setting has to match the game.
 """
 import argparse
 import logging
@@ -24,9 +26,11 @@ import analysis
 import cloud as cloud_mod
 import config
 import driver_db
+import formats
 import packets
 import reference
 import trace
+import track_map
 from analysis import Analyzer
 from brain import RaceEngineer
 from dashboard import Dashboard
@@ -36,8 +40,6 @@ from state import LapComplete, SectorComplete, SessionState
 
 CORNER_NOTE_MIN_DELTA_MS = 200  # only localize losses worth talking about
 LIVE_CORNER_COOLDOWN_S = 10     # min gap between mid-lap corner calls
-RACE_SESSION_TYPES = {15, 16, 17}
-QUALI_SESSION_TYPES = {5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
 
 STORY_CAUSE_WORDS = {
     "braked_early": "braking", "overslowed": "apex", "slow_exit": "exit",
@@ -77,6 +79,9 @@ class Engineer:
         self._warned_sizes = set()
         self._warned_format = False
         self._raw_logged = 0
+        # Resolved from the first packet that arrives — the game decides
+        # which UDP format we speak, not us.
+        self.codec = None
         self._last_history_check = 0.0
         self._pending_s3 = None
         self._laps_seen = 0
@@ -84,6 +89,7 @@ class Engineer:
         self._candidate_uid = None
         self._candidate_count = 0
         self._track_id = None
+        self._track_length = None
         self._race_mode = False
         self._session_type = None
         self.memory = CornerMemory()
@@ -91,6 +97,8 @@ class Engineer:
         self._db = driver_db.load()
         self._history_announced = False
         self._wear_pct = None
+        self._track_maps = track_map.load()
+        self._map_rec = track_map.MapRecorder()
         self.reference = reference.ReferenceTimes()
         self._reset_traces()
         self._reset_flags()
@@ -131,7 +139,27 @@ class Engineer:
         # mode) no telemetry is processed — no voice, no dashboard data.
         if self.cloud is not None and not self.cloud.entitled:
             return
-        header = packets.parse_header(data)
+        # m_packetFormat is the first uint16 of every F1 header and has been
+        # since 2018, so it reads the same regardless of which layout follows
+        # — which is precisely what picks the codec for the rest of the bytes.
+        if len(data) < formats.FORMAT_FIELD.size:
+            log.warning("runt packet, %d bytes — ignored", len(data))
+            return
+        fmt = formats.FORMAT_FIELD.unpack_from(data, 0)[0]
+        codec = formats.codec_for(fmt)
+        if codec is None:
+            if not self._warned_format:
+                self._warned_format = True
+                log.warning("packet format %d is not supported — this build "
+                            "handles %s", fmt,
+                            ", ".join(str(s) for s in formats.SUPPORTED))
+            return
+        if codec is not self.codec:
+            self.codec = codec
+            log.info("telemetry format %d (%s) — decoding with the %d codec",
+                     fmt, formats.GAME_NAMES.get(fmt, "?"), fmt)
+
+        header = codec.parse_header(data)
         if header is None:
             log.warning("runt packet, %d bytes — ignored", len(data))
             return
@@ -143,22 +171,15 @@ class Engineer:
                      packets.PACKET_NAMES.get(header.packet_id, "?"),
                      header.session_uid)
 
-        if header.packet_format != packets.PACKET_FORMAT:
-            if not self._warned_format:
-                self._warned_format = True
-                log.warning("packet format %d, expected %d — set the game's "
-                            "UDP format to 2025", header.packet_format,
-                            packets.PACKET_FORMAT)
-            return
-
-        expected = packets.EXPECTED_SIZES.get(header.packet_id)
-        if expected is not None and len(data) != expected:
+        if not codec.size_ok(header.packet_id, len(data)):
             if header.packet_id not in self._warned_sizes:
                 self._warned_sizes.add(header.packet_id)
-                log.warning("%s packet is %d bytes, spec says %d — parser "
-                            "skipping this type; struct layout needs checking",
+                log.warning("%s packet is %d bytes, the %d spec says %d — "
+                            "parser skipping this type; struct layout needs "
+                            "checking",
                             packets.PACKET_NAMES.get(header.packet_id, "?"),
-                            len(data), expected)
+                            len(data), codec.FORMAT,
+                            codec.expected_size(header.packet_id))
             return
 
         if self.dash:
@@ -199,7 +220,7 @@ class Engineer:
                 self._say(self.brain.new_session())
 
         if header.packet_id == packets.LAP_DATA:
-            lap = packets.parse_lap_data(data, header.player_car_index)
+            lap = codec.parse_lap_data(data, header.player_car_index)
             prev_dist = self._last_lap_distance
             self._last_lap_distance = lap.lap_distance
             events = self.state.update_from_lap_data(header, lap)
@@ -210,6 +231,10 @@ class Engineer:
             if (0 <= lap.lap_distance < prev_dist - 200
                     and not any(isinstance(e, LapComplete) for e in events)):
                 self._cur_trace = trace.LapTrace()
+                # The map recorder must restart too, or the abandoned
+                # fragment gets stitched onto the new attempt and the drawn
+                # circuit teleports across the screen.
+                self._map_rec.reset()
                 self._sector_start_m = 0.0
             if self.dash:
                 self.dash.update(
@@ -219,49 +244,67 @@ class Engineer:
                     s1Ms=lap.sector1_ms, s2Ms=lap.sector2_ms,
                     lapDistanceM=round(max(0.0, lap.lap_distance), 1))
         elif header.packet_id == packets.EVENT:
-            self._on_game_event(packets.parse_event(data), header)
+            self._on_game_event(codec.parse_event(data), header)
         elif header.packet_id == packets.CAR_STATUS:
-            status = packets.parse_car_status(data, header.player_car_index)
+            status = codec.parse_car_status(data, header.player_car_index)
             self.state.update_from_car_status(status)
             blue = status.vehicle_fia_flags == packets.FIA_FLAG_BLUE
             if blue and not self._blue:
                 self._flag("blue")
             self._blue = blue
+            # 2020 has no Car Damage packet — tyre wear rides along in Car
+            # Status instead, so pick it up here rather than at CAR_DAMAGE.
+            if codec.WEAR_FROM_CAR_STATUS:
+                wear = codec.wear_from_car_status(data, header.player_car_index)
+                if wear:
+                    self._wear_pct = round(sum(wear) / 4, 1)
             if self.dash:
                 self.dash.update(
                     compound=VISUAL_COMPOUND_NAMES.get(status.visual_tyre_compound),
                     tyreAge=status.tyres_age_laps,
                     fuelKg=round(status.fuel_in_tank, 2),
-                    fuelLaps=round(status.fuel_remaining_laps, 2))
+                    fuelLaps=round(status.fuel_remaining_laps, 2),
+                    wearPct=self._wear_pct)
         elif header.packet_id == packets.SESSION:
-            info = packets.parse_session(data)
+            info = codec.parse_session(data)
             self._track_id = info.track_id
+            self._track_length = info.track_length
             self._session_type = info.session_type
-            self._race_mode = info.session_type in RACE_SESSION_TYPES
+            self._race_mode = info.session_type in codec.RACE_SESSION_TYPES
             self.brain.race_mode = self._race_mode
-            self.brain.quali_mode = info.session_type in QUALI_SESSION_TYPES
+            self.brain.quali_mode = (info.session_type
+                                     in codec.QUALI_SESSION_TYPES)
             self.reference.set_track(info.track_id)
-            self._check_session_flags(packets.parse_session_flags(data))
+            self._check_session_flags(codec.parse_session_flags(data))
             if not self._history_announced:
                 self._history_announced = True
                 prev = driver_db.last_for_track(self._db, info.track_id)
                 if prev:
                     self._say(self.brain.track_history_line(prev["best_lap_ms"]))
             if self.dash:
-                track = packets.TRACK_NAMES.get(info.track_id, "F1 25")
-                session = packets.SESSION_TYPE_NAMES.get(info.session_type, "")
-                label = " · ".join(p.upper() for p in (track, session, "F1 25") if p)
+                game = formats.GAME_NAMES.get(codec.FORMAT, "F1")
+                track = packets.TRACK_NAMES.get(info.track_id, game)
+                session = codec.SESSION_TYPE_NAMES.get(info.session_type, "")
+                label = " · ".join(p.upper() for p in (track, session, game) if p)
                 self.dash.update(sessionLabel=label, paused=bool(info.game_paused),
                                  trackId=info.track_id,
                                  trackLength=info.track_length,
+                                 trackPath=self._track_maps.get(
+                                     str(info.track_id)),
                                  reference=self.reference.state())
         elif header.packet_id == packets.CAR_DAMAGE:
-            wear = packets.parse_tyre_wear(data, header.player_car_index)
+            wear = codec.parse_tyre_wear(data, header.player_car_index)
             self._wear_pct = round(sum(wear) / 4, 1)
             if self.dash:
                 self.dash.update(wearPct=self._wear_pct)
+        elif header.packet_id == packets.MOTION:
+            # Build an accurate circuit outline from where the car actually
+            # goes, rather than relying on the hand-drawn sketches.
+            if self._track_id is not None and str(self._track_id) not in self._track_maps:
+                x, _y, z = codec.parse_car_position(data, header.player_car_index)
+                self._map_rec.add(self._last_lap_distance, x, z)
         elif header.packet_id == packets.CAR_TELEMETRY:
-            tel = packets.parse_car_telemetry(data, header.player_car_index)
+            tel = codec.parse_car_telemetry(data, header.player_car_index)
             self.state.update_from_telemetry(tel)
             self._cur_trace.add(self._last_lap_distance, tel.speed_kph,
                                 tel.throttle, tel.brake)
@@ -272,9 +315,11 @@ class Engineer:
             log.debug("telemetry: %d kph, throttle %.2f, brake %.2f, gear %d",
                       tel.speed_kph, tel.throttle, tel.brake, tel.gear)
         elif header.packet_id == packets.SESSION_HISTORY:
-            self._check_history(data, header)
+            self._check_history(data, header, codec)
         elif header.packet_id == packets.TIME_TRIAL:
-            tt = packets.parse_time_trial(data)
+            tt = codec.parse_time_trial(data)
+            if tt is None:  # format predates the Time Trial packet
+                return
             self.reference.update_rival(tt.rival)
             if self.dash:
                 self.dash.update(reference=self.reference.state())
@@ -366,6 +411,20 @@ class Engineer:
                     self._prev_best_trace = self._best_trace
                     self._best_trace = self._cur_trace
                     self._best_trace_valid = valid
+            if full_lap and self._map_rec.complete(self._track_length):
+                entry = track_map.record(self._track_maps, self._track_id,
+                                         self._map_rec.points,
+                                         self._track_length)
+                if entry and self.dash:
+                    self.dash.update(trackPath=entry)
+            elif full_lap and self._map_rec.samples:
+                log.debug("track map not recorded: %d samples, starts at %.0fm, "
+                          "reaches %.0fm of %s, largest gap %.0fm",
+                          len(self._map_rec.samples),
+                          self._map_rec.samples[0][0],
+                          self._map_rec.samples[-1][0], self._track_length,
+                          self._map_rec.gaps())
+            self._map_rec.reset()
             self._cur_trace = trace.LapTrace()
             self._sector_start_m = 0.0
             self._live_called_zones.clear()
@@ -543,10 +602,12 @@ class Engineer:
         print(f'  🎧 "{line}"')
         self.announcer.say(line)
 
-    def _check_history(self, data: bytes, header) -> None:
+    def _check_history(self, data: bytes, header, codec) -> None:
         """Backfill laps recorded before we started listening, and cross-check
         our tracked bests against the game's Session History."""
-        history = packets.parse_session_history(data)
+        history = codec.parse_session_history(data)
+        if history is None:  # format predates the Session History packet
+            return
         if history.car_idx != header.player_car_index or not history.laps:
             return
 
@@ -601,9 +662,12 @@ def run_raw(sock: socket.socket) -> None:
         except socket.timeout:
             continue
         count += 1
-        h = packets.parse_header(data)
+        codec = (formats.codec_for(formats.FORMAT_FIELD.unpack_from(data, 0)[0])
+                 if len(data) >= formats.FORMAT_FIELD.size else None)
+        h = codec.parse_header(data) if codec else None
         if h is None:
-            print(f"#{count} from {addr[0]}: {len(data)} bytes (too short for header)")
+            print(f"#{count} from {addr[0]}: {len(data)} bytes "
+                  f"(unsupported format or too short for header)")
             continue
         print(f"#{count} from {addr[0]}: {len(data)} bytes  format={h.packet_format}"
               f"  id={h.packet_id} ({packets.PACKET_NAMES.get(h.packet_id, '?')})"
@@ -659,7 +723,8 @@ def setup_logging(verbose: bool):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="F1 25 voice race engineer")
+    parser = argparse.ArgumentParser(
+        description="F1 voice race engineer (UDP formats 2020-2025)")
     parser.add_argument("--port", type=int, default=config.PORT)
     parser.add_argument("--raw", action="store_true",
                         help="Phase 1: log raw packet headers only, no parsing")

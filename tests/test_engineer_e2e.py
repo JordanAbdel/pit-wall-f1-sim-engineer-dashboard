@@ -67,7 +67,11 @@ def test_practice_stint():
     assert "laps in a row" in joined                    # streak memory fired
     assert eng.memory.top_issue() is not None
     assert "the rival" not in joined                    # no reference w/o TT
-    assert eng.reference.source == "target"             # Silverstone benchmark
+    # The Silverstone benchmark is 84.0s; this stint's theoretical best is
+    # 100.9s. An out-of-reach target is not a coaching reference, so the
+    # deltas stay against the driver's own bests.
+    assert eng.reference.source == "self"
+    assert "the target" not in joined
 
 
 def test_time_trial_with_rival():

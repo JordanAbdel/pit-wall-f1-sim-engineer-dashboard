@@ -727,7 +727,7 @@ function render() {
 
   // Header
   $('sessionLabel').textContent = s.sessionLabel;
-  renderTrackMap(s.trackId);
+  renderTrackMap(s.trackId, s.trackPath);
   updateMapOverlays(s);
   const badge = serverDown ? { label: 'APP CLOSED', color: C.faint }
     : s.live ? { label: 'LIVE', color: C.red }
@@ -945,22 +945,34 @@ function render() {
   }
 }
 
-function renderTrackMap(trackId) {
-  if (trackId === renderedTrackId) return;
-  renderedTrackId = trackId;
+function renderTrackMap(trackId, recorded) {
+  // A map recorded from real driving is exact; the built-in outlines are
+  // stylised sketches. Re-render when a recording first arrives, so the
+  // sketch is replaced the moment the driver completes a lap.
+  const key = trackId + '|' + (recorded ? recorded.points : 0);
+  if (key === renderedTrackId) return;
+  renderedTrackId = key;
   renderedWeak = null;
-  const map = TRACK_MAPS[trackId];
+  const sketch = TRACK_MAPS[trackId];
+  const map = recorded
+    ? Object.assign({}, sketch, {
+        path: recorded.path,
+        sf: recorded.sf,
+        corners: [],                     // recorded laps carry no corner numbers
+        name: (sketch ? sketch.name : 'TRACK ' + trackId) + ' — YOUR LAP',
+      })
+    : sketch;
   const panel = $('trackMapPanel');
   if (!map) {
     panel.style.display = 'none';  // map-only view forces it back on
     $('trackMapTitle').textContent = trackId == null
       ? 'TRACK MAP — WAITING FOR A SESSION'
-      : 'TRACK MAP — NO OUTLINE FOR THIS CIRCUIT YET';
+      : 'TRACK MAP — DRIVE A LAP TO RECORD THIS CIRCUIT';
     $('trackMapSvg').innerHTML = '';
     $('mapWeakList').innerHTML = '<span class="empty-note">' +
       (trackId == null
-        ? 'GET ON TRACK IN F1 25 — THE MAP APPEARS WITH THE SESSION'
-        : 'NO OUTLINE FOR THIS CIRCUIT YET — TELL JORDAN WHICH TRACK THIS IS') + '</span>';
+        ? 'GET ON TRACK — THE MAP APPEARS WITH THE SESSION'
+        : 'NO OUTLINE YET — DRIVE ONE FULL LAP AND IT WILL DRAW ITSELF') + '</span>';
     return;
   }
   panel.style.display = 'flex';

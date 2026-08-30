@@ -72,6 +72,9 @@ class Analyzer:
     def __init__(self):
         self.best_sectors = {1: None, 2: None, 3: None}
         self.best_sector_stats = {1: None, 2: None, 3: None}
+        # Whether each sector baseline came from a valid lap. A baseline set
+        # from an invalid lap is provisional: any valid time replaces it.
+        self.best_sector_valid = {1: False, 2: False, 3: False}
         self.best_lap_ms = None
         self._current_lap_deltas = {}
         self._recent_sectors = {1: deque(maxlen=STINT_WINDOW),
@@ -103,8 +106,20 @@ class Analyzer:
         prev_best_stats = self.best_sector_stats[ev.sector]
         delta = None if best is None else ev.time_ms - best
         is_best = not ev.lap_invalid and (best is None or ev.time_ms < best)
-        if is_best:
+        # An invalid lap may still seed the baseline when nothing valid
+        # exists yet. Time Trial deletes most attempts for track limits, and
+        # with no baseline at all there is no delta and so no coaching for
+        # that sector — which is how a sector you always run wide in ends up
+        # never being coached. Mirrors the trace reference rule: a valid time
+        # always outranks a provisional one, regardless of which is faster.
+        have_valid = self.best_sector_valid[ev.sector]
+        if ev.lap_invalid:
+            take = not have_valid and (best is None or ev.time_ms < best)
+        else:
+            take = best is None or not have_valid or ev.time_ms < best
+        if take:
             self.best_sectors[ev.sector] = ev.time_ms
+            self.best_sector_valid[ev.sector] = not ev.lap_invalid
             if ev.stats is not None:
                 self.best_sector_stats[ev.sector] = ev.stats
         self._current_lap_deltas[ev.sector] = delta
