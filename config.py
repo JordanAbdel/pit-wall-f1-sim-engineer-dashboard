@@ -33,8 +33,10 @@ for _env_file in (APP_DIR / ".env", BUNDLE_DIR / ".env"):
 # no cloud persistence — the app behaves like the original personal tool.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
-CHECKOUT_FUNCTION_URL = (f"{SUPABASE_URL}/functions/v1/create-checkout"
-                         if SUPABASE_URL else "")
+# Ed25519 public key (base64, 32 raw bytes) that verifies the server-signed
+# offline licence — see supabase/functions/issue-license. Without it there
+# is no offline grace: the app must reach the licence server to run.
+LICENSE_PUBLIC_KEY = os.environ.get("LICENSE_PUBLIC_KEY", "")
 
 # Network — Xbox must be set to send UDP telemetry to this Mac's LAN IP on
 # this port. The UDP format setting is not important: packet formats 2020
@@ -44,6 +46,10 @@ PORT = 20777
 
 # Dashboard (pit-wall web UI, served on localhost)
 DASHBOARD_PORT = 8777
+# Second-screen access for phones/tablets on the same network. Off unless
+# the user turns it on (dashboard PHONE button, or --lan); each device must
+# pair with a code shown on this computer. See lan.py.
+DASHBOARD_LAN_PORT = 8778
 
 # TTS — "kokoro" is the natural neural voice, bundled in models/ (self-
 # contained, no sibling project needed). Any failure falls back to macOS

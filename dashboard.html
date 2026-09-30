@@ -43,7 +43,7 @@
               animation: livePulse 1.4s ease-in-out infinite; }
 
   /* Live panel */
-  .live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .live-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr)); gap: 14px; }
   .lap-card { padding: 22px 26px; display: flex; flex-direction: column;
               justify-content: space-between; gap: 10px; min-width: 0; }
   .lap-card-top { display: flex; justify-content: space-between; align-items: baseline; }
@@ -67,7 +67,7 @@
   .sector-best { font-size: 13px; color: var(--dim); }
 
   /* Summary strip */
-  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; }
+  .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr)); gap: 14px; }
   .stat { padding: 14px 20px; display: flex; flex-direction: column; gap: 6px; }
   .stat-title { font-size: 13px; font-weight: 600; letter-spacing: 2px; color: var(--dim); }
   .stat-value { font-size: 28px; font-weight: 600; }
@@ -82,7 +82,7 @@
   .stat-caption { font-size: 12px; letter-spacing: 1.5px; color: var(--dim); }
 
   /* Bottom */
-  .bottom-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 14px; flex: 1; }
+  .bottom-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(360px, 100%), 1fr)); gap: 14px; flex: 1; }
   .history { padding: 16px 20px; display: flex; flex-direction: column; gap: 2px; }
   .block-title { font-size: 15px; font-weight: 700; letter-spacing: 2.5px; color: var(--dim); padding-bottom: 10px; }
   .hist-cols { display: grid; grid-template-columns: 34px minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 44px; gap: 6px; }
@@ -279,6 +279,57 @@
              font-size: 9px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
   .map-sf { fill: var(--red); font-family: 'Barlow Condensed', sans-serif;
             font-size: 10px; font-weight: 700; letter-spacing: 1px; }
+
+  /* Console connection check (shown with the login / paywall) */
+  .auth-overlay { flex-direction: column; gap: 12px; padding: 16px; box-sizing: border-box; }
+  .conn-check { width: min(400px, 100%); box-sizing: border-box; display: flex; gap: 12px;
+                align-items: flex-start; background: var(--panel); border: 1px solid var(--border);
+                border-radius: 12px; padding: 14px 18px; font-size: 14px;
+                letter-spacing: 0.5px; line-height: 1.45; color: var(--dim); }
+  .conn-check .live-dot { flex: none; margin-top: 5px; }
+  .conn-check b { color: var(--text); letter-spacing: 1.5px; }
+  .auth-btn:disabled { opacity: 0.5; cursor: default; filter: none; }
+
+  /* Phone / tablet pairing */
+  .pair-code { font-family: 'IBM Plex Mono', monospace; font-size: 40px; font-weight: 700;
+               letter-spacing: 8px; color: var(--text); text-align: center; padding: 6px 0; }
+  .pair-url { font-family: 'IBM Plex Mono', monospace; font-size: 15px; color: var(--purple);
+              word-break: break-all; }
+
+  /* Tablet: lap card full width with the three sectors in a row under it;
+     history and trend stack so lap times aren't squeezed. */
+  @media (max-width: 1024px) {
+    body { padding: 16px 16px 24px; }
+    .header { flex-wrap: wrap; row-gap: 10px; }
+    .header-right { flex-wrap: wrap; gap: 12px; }
+    .legend { display: none; }
+    .live-grid { grid-template-columns: 1fr; }
+    .bottom-grid { grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); }
+  }
+  /* Phone: one column, and Δ BEST becomes the biggest number on screen. */
+  @media (max-width: 640px) {
+    body { padding: 12px 16px 20px; gap: 10px; }
+    .header-left { flex-wrap: wrap; gap: 10px; }
+    .header-right { gap: 8px; }
+    .recap-btn, .view-tab { padding: 6px 10px; }
+    .lap-card { padding: 16px; }
+    .live-time { font-size: 40px; letter-spacing: -1px; }
+    .live-stats { flex-wrap: wrap; gap: 10px 18px; }
+    .live-stats .live-stat:first-child { flex-basis: 100%; }
+    #liveDelta { font-size: 56px; line-height: 1; }
+    .sector-grid { grid-template-columns: 1fr; gap: 8px; }
+    .sector-box { padding: 12px 14px; }
+    .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .stat { padding: 10px 12px; }
+    .stat-value { font-size: 22px; }
+    .history, .trend, .track-map { padding: 12px; }
+    .hist-cols { grid-template-columns: 24px minmax(0,1.3fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) 34px; gap: 4px; }
+    .hist-row, .hist-head { padding: 6px 4px; }
+    .hist-time { font-size: 13px; }
+    .hist-sec, .hist-lap { font-size: 12px; }
+    .modal, .auth-card { padding: 18px; }
+    .ob-btns .auth-btn { padding: 8px 14px; }
+  }
 </style>
 </head>
 <body>
@@ -303,8 +354,11 @@
       </div>
       <span class="account-chip" id="accountChip" style="display: none;">
         <span id="accountEmail"></span>
+        <span id="accountMsg" style="color: var(--yellow)"></span>
+        <button id="accountManage">MANAGE SUBSCRIPTION</button>
         <button id="accountLogout">LOGOUT</button>
       </span>
+      <button class="recap-btn" id="phoneBtn">PHONE</button>
       <button class="recap-btn" id="helpBtn">HELP</button>
       <button class="recap-btn" id="recapBtn">RECAP</button>
     </div>
@@ -331,11 +385,21 @@
       <div class="auth-sub">Live telemetry, voice race engineer, corner
         coaching, session history — everything, one plan.</div>
       <button class="auth-btn primary" id="btnSubscribe">SUBSCRIBE WITH STRIPE</button>
+      <button class="auth-btn" id="btnPaywallManage" style="display: none;">MANAGE SUBSCRIPTION</button>
       <div class="auth-row">
         <button class="auth-btn" id="btnRefreshStatus">REFRESH STATUS</button>
         <button class="auth-btn" id="btnPaywallLogout">LOG OUT</button>
       </div>
       <div class="auth-msg" id="paywallMsg"></div>
+    </div>
+    <div class="auth-card" id="authRemote" style="display: none;">
+      <div class="auth-title">PIT WALL</div>
+      <div class="auth-sub">PitWall isn't active yet. Sign in and subscribe
+        on the PitWall computer; this screen updates on its own.</div>
+    </div>
+    <div class="conn-check" id="connCheck">
+      <span class="live-dot" id="connDot"></span>
+      <div id="connText"></div>
     </div>
   </div>
 
@@ -461,6 +525,20 @@
           <button class="auth-btn" id="obBack">BACK</button>
           <button class="auth-btn primary" id="obNext">NEXT</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="phoneOverlay">
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-title">PHONE &amp; TABLET</div>
+        <button class="modal-close" id="phoneClose">CLOSE ✕</button>
+      </div>
+      <div class="ob-body" id="phoneBody" style="min-height: 0"></div>
+      <div class="auth-row">
+        <button class="auth-btn primary" id="phoneToggle">ALLOW PHONES &amp; TABLETS</button>
+        <button class="auth-btn" id="phoneUnpair" style="display: none;">UNPAIR ALL</button>
       </div>
     </div>
   </div>
@@ -742,6 +820,8 @@ function render() {
   renderTrackMap(s.trackId, s.trackPath);
   updateMapOverlays(s);
   const badge = serverDown ? { label: 'APP CLOSED', color: C.faint }
+    : s.hasSignal && s.signalFormat && !s.signalGame
+      ? { label: 'UNSUPPORTED FORMAT', color: C.yellow }
     : s.hasSignal && s.spectating ? { label: 'SPECTATING', color: C.yellow }
     : s.live ? { label: 'LIVE', color: C.red }
     : s.hasSignal ? { label: 'PAUSED', color: C.yellow }
@@ -1153,14 +1233,42 @@ async function poll() {
     pollFails = 0;
     serverDown = false;   // self-heals when the app comes back
     render();
+    renderConn();
   } catch (e) {
     if (++pollFails === 10 && state) {
       serverDown = true;
       state.live = false;       // freezes the lap clock (drift is gated on live)
       state.hasSignal = false;
       render();
+      renderConn();
     }
   }
+}
+
+// Console connection check, shown under the login / paywall so a buyer
+// can see their setup works before paying. Telemetry is detected even
+// while the engine is paywalled.
+function renderConn() {
+  if (!$('authGate').classList.contains('open')) return;
+  const s = state || {};
+  let color = C.faint, html;
+  if (serverDown) {
+    html = '<b>PITWALL CLOSED</b><br>Start PitWall again to check your console.';
+  } else if (s.hasSignal && s.signalGame) {
+    color = C.green;
+    html = `<b>CONSOLE CONNECTED</b><br>Receiving ${s.signalGame} telemetry. Your setup works.`;
+  } else if (s.hasSignal && s.signalFormat) {
+    color = C.yellow;
+    html = `<b>UNSUPPORTED FORMAT</b><br>The game is sending UDP format ${s.signalFormat}.
+      In its Telemetry Settings pick any format from 2020 to 2025.`;
+  } else {
+    html = `<b>CONSOLE CHECK</b><br>Waiting for telemetry. In the game's Telemetry
+      Settings turn UDP on and set the IP to <b>${obIp()}</b>, port <b>${obPort()}</b>.
+      Then drive onto the track.`;
+  }
+  $('connText').innerHTML = html;
+  $('connDot').style.background = color;
+  $('connCheck').style.color = s.hasSignal && !serverDown ? C.text : C.dim;
 }
 
 setInterval(poll, 200);
@@ -1168,28 +1276,44 @@ setInterval(tickClock, 50);
 poll();
 
 // ---- auth + paywall (Supabase / Stripe; absent in local dev mode) ----
-let authState = null, sbConfig = null, sbClient = null;
-
-async function getSb() {
-  if (!sbClient) {
-    const mod = await import('https://esm.sh/@supabase/supabase-js@2');
-    sbClient = mod.createClient(sbConfig.supabaseUrl, sbConfig.supabaseAnonKey);
-  }
-  return sbClient;
-}
+// Login and billing run inside the PitWall app (see cloud.py): this page
+// only talks to its own server, loads no third-party code and never holds
+// a token. On a paired phone/tablet (appConfig.remote) it is view-only.
+let authState = null, appConfig = null;
+let manageOffered = false;  // checkout said a subscription already exists
 
 const OFFLINE_MSG = "Can't reach the license server — check your internet connection, then restart PitWall.";
 
+async function postJson(path, body) {
+  const res = await fetch(path, { method: 'POST',
+    body: body === undefined ? undefined : JSON.stringify(body) });
+  return res.json();
+}
+
 function renderAuth() {
   const a = authState;
+  const remote = !!(a && a.remote);
   const gated = a && a.configured && !a.entitled;
   $('authGate').classList.toggle('open', !!gated);
   if (gated) {
-    $('authLogin').style.display = a.loggedIn ? 'none' : 'flex';
-    $('authPaywall').style.display = a.loggedIn ? 'flex' : 'none';
+    $('authRemote').style.display = remote ? 'flex' : 'none';
+    $('authLogin').style.display = !remote && !a.loggedIn ? 'flex' : 'none';
+    $('authPaywall').style.display = !remote && a.loggedIn ? 'flex' : 'none';
+    renderConn();
+  }
+  if (remote) {
+    $('phoneBtn').style.display = 'none';
+    $('accountChip').style.display = 'none';
+    return;
+  }
+  if (gated) {
     if (a.loggedIn) {
       $('paywallEmail').textContent = a.email || '';
       $('paywallStatus').textContent = (a.status || 'inactive').toUpperCase();
+      // A lapsed subscriber manages (reactivates, fixes the card) rather
+      // than starting a second subscription.
+      const lapsed = a.status && a.status !== 'inactive';
+      $('btnPaywallManage').style.display = lapsed || manageOffered ? 'block' : 'none';
     }
     // Gated because we're offline (no valid cached license), not because
     // the subscription lapsed — say so instead of pitching Stripe.
@@ -1214,79 +1338,67 @@ async function pollAuth() {
   } catch (e) { /* server restarting */ }
 }
 
+const APP_GONE = "Couldn't reach the PitWall app — is it still running? Restart it and try again.";
+
 async function handleLogin(signup) {
   const email = $('authEmail').value.trim();
   const password = $('authPassword').value;
   const msg = $('authMsg');
   if (!email || !password) { msg.textContent = 'Email and password required.'; return; }
   msg.textContent = signup ? 'Creating account…' : 'Logging in…';
+  $('btnLogin').disabled = $('btnSignup').disabled = true;
   try {
-    const sb = await getSb();
-    const { data, error } = signup
-      ? await sb.auth.signUp({ email, password })
-      : await sb.auth.signInWithPassword({ email, password });
-    if (error) { msg.textContent = error.message; return; }
-    if (!data.session) {
-      msg.textContent = 'Check your email to confirm the account, then log in.';
-      return;
-    }
-    // Supabase accepted the login — now hand the tokens to the app. If
-    // that fails, say so: otherwise the browser looks logged in while
-    // the engine stays gated.
-    let handoff = null;
-    try {
-      handoff = await fetch('/auth/session', {
-        method: 'POST',
-        body: JSON.stringify({
-          access_token: data.session.access_token,
-          refresh_token: data.session.refresh_token,
-        }),
-      });
-    } catch (e) { /* handled below */ }
-    if (!handoff || !handoff.ok) {
-      msg.textContent = "Logged in, but couldn't reach the PitWall app — "
-        + 'is it still running? Restart it and try again.';
-      return;
-    }
-    msg.textContent = '';
-    pollAuth();
-  } catch (e) { msg.textContent = 'Login failed: ' + e.message; }
+    const out = await postJson('/auth/login', { email, password, signup });
+    msg.textContent = out.ok ? '' : (out.message || 'Login failed.');
+    if (out.ok) $('authPassword').value = '';
+    await pollAuth();
+  } catch (e) {
+    msg.textContent = APP_GONE;
+  } finally {
+    $('btnLogin').disabled = $('btnSignup').disabled = false;
+  }
 }
 
-async function handleSubscribe() {
-  const msg = $('paywallMsg');
-  msg.textContent = 'Opening Stripe checkout…';
+// Stripe Checkout / Customer Portal. The app returns the link; if checkout
+// is refused because a subscription already exists, offer the portal.
+async function openBilling(kind, msg, btn) {
+  msg.textContent = kind === 'checkout' ? 'Opening Stripe checkout…'
+                                        : 'Opening subscription management…';
+  if (btn) btn.disabled = true;
   try {
-    const sb = await getSb();
-    const { data: { session } } = await sb.auth.getSession();
-    if (!session) { msg.textContent = 'Session expired in this browser — log out and back in.'; return; }
-    const res = await fetch(sbConfig.checkoutUrl, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session.access_token}`,
-                 apikey: sbConfig.supabaseAnonKey },
-    });
-    const out = await res.json();
-    if (out.url) { window.location.href = out.url; }
-    else { msg.textContent = out.error || 'Could not start checkout.'; }
-  } catch (e) { msg.textContent = 'Checkout failed: ' + e.message; }
+    const out = await postJson(`/billing/${kind}`);
+    if (out.url) { window.location.href = out.url; return; }
+    msg.textContent = out.error || 'Something went wrong — try again.';
+    if (out.manage) { manageOffered = true; $('btnPaywallManage').style.display = 'block'; }
+  } catch (e) {
+    msg.textContent = APP_GONE;
+  }
+  if (btn) btn.disabled = false;
 }
 
 async function handleLogout() {
   await fetch('/auth/logout', { method: 'POST' }).catch(() => {});
-  try { (await getSb()).auth.signOut(); } catch (e) {}
   pollAuth();
 }
 
 async function initAuth() {
   try {
-    sbConfig = await (await fetch('/config.json')).json();
+    appConfig = await (await fetch('/config.json')).json();
   } catch (e) { return; }
+  if (appConfig.remote) { await pollAuth(); setInterval(pollAuth, 4000); return; }
   $('btnLogin').addEventListener('click', () => handleLogin(false));
   $('btnSignup').addEventListener('click', () => handleLogin(true));
   $('authPassword').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') handleLogin(false);
   });
-  $('btnSubscribe').addEventListener('click', handleSubscribe);
+  $('btnSubscribe').addEventListener('click',
+    () => openBilling('checkout', $('paywallMsg'), $('btnSubscribe')));
+  $('btnPaywallManage').addEventListener('click',
+    () => openBilling('portal', $('paywallMsg'), $('btnPaywallManage')));
+  $('accountManage').addEventListener('click', async () => {
+    await openBilling('portal', $('accountMsg'), $('accountManage'));
+    setTimeout(() => { $('accountMsg').textContent = ''; }, 8000);
+  });
   $('btnRefreshStatus').addEventListener('click', async () => {
     $('paywallMsg').textContent = 'Checking…';
     await fetch('/auth/refresh', { method: 'POST' }).catch(() => {});
@@ -1311,8 +1423,8 @@ async function initAuth() {
 initAuth();
 
 // ---- onboarding wizard + FAQ ----
-function obIp() { return (sbConfig && sbConfig.lanIp) || "this computer's IP"; }
-function obPort() { return (sbConfig && sbConfig.udpPort) || 20777; }
+function obIp() { return (appConfig && appConfig.lanIp) || "this computer's IP"; }
+function obPort() { return (appConfig && appConfig.udpPort) || 20777; }
 
 function obSteps() {
   return [
@@ -1412,6 +1524,14 @@ function faqHtml() {
       `Not during the beta — billing runs in Stripe <b>test mode</b>.
        Use card <code>4242 4242 4242 4242</code>, any future expiry, any
        CVC. No real payment method is needed and no money moves.`) +
+    item('How do I cancel or change my card?',
+      `Click <b>MANAGE SUBSCRIPTION</b> at the top of the dashboard. It opens
+       Stripe's billing page, where you can cancel, update your card or
+       download invoices. After cancelling, PitWall keeps working until the
+       end of the period you've paid for.`) +
+    item('Can I use a phone or tablet as the screen?',
+      `Yes. Click <b>PHONE</b>, turn it on, then open the address it shows on
+       a device on the same Wi-Fi and enter the 6-digit code.`) +
     item('Something broke — how do I report it?',
       `The Terminal window prints a log path when PitWall starts, like
        <code>…/PitWall/logs/pitwall.log</code>. Send that file with a quick
@@ -1427,7 +1547,62 @@ $('faqSetupBtn').addEventListener('click', () => {
   $('helpOverlay').classList.remove('open');
   openOnboarding();
 });
+// ---- phone / tablet access (localhost only; see lan.py) ----
+let lanPoll = null;
+
+function renderLan(l) {
+  const on = l.enabled && l.running;
+  let html;
+  if (on) {
+    const code = l.code.slice(0, 3) + ' ' + l.code.slice(3);
+    html = `<p>On a phone or tablet on the <b>same Wi-Fi</b>, open</p>
+      <div class="pair-url">${l.url}</div>
+      <p style="margin-top: 10px">and enter this code:</p>
+      <div class="pair-code">${code}</div>
+      <p>Each device pairs once and stays paired. <b>UNPAIR ALL</b> signs every
+      device out. Login and billing stay on this computer.</p>`;
+  } else if (l.error) {
+    html = `<p>Couldn't open phone access: <b>${l.error}</b></p>`;
+  } else if (!l.url) {
+    html = `<p>This computer doesn't seem to be on a network right now.</p>`;
+  } else {
+    html = `<p>Put the dashboard on a phone or tablet on the same Wi-Fi, for
+      example on your wheel stand. Each device pairs once with a code shown
+      here.</p><p>Your computer may ask whether PitWall can accept incoming
+      network connections. Allow it.</p>`;
+  }
+  $('phoneBody').innerHTML = html;
+  $('phoneToggle').textContent = l.enabled ? 'TURN OFF' : 'ALLOW PHONES & TABLETS';
+  $('phoneToggle').classList.toggle('primary', !l.enabled);
+  $('phoneUnpair').style.display = l.enabled ? 'block' : 'none';
+}
+
+async function refreshLan() {
+  try { renderLan(await (await fetch('/lan')).json()); } catch (e) {}
+}
+
+function closePhone() {
+  $('phoneOverlay').classList.remove('open');
+  clearInterval(lanPoll);
+}
+
+$('phoneBtn').addEventListener('click', () => {
+  $('phoneOverlay').classList.add('open');
+  refreshLan();
+  clearInterval(lanPoll);
+  lanPoll = setInterval(refreshLan, 3000);  // the code changes after wrong guesses
+});
+$('phoneClose').addEventListener('click', closePhone);
+$('phoneToggle').addEventListener('click', async () => {
+  const enable = $('phoneToggle').textContent !== 'TURN OFF';
+  try { renderLan(await postJson('/lan', { enabled: enable })); } catch (e) {}
+});
+$('phoneUnpair').addEventListener('click', async () => {
+  try { renderLan(await postJson('/lan/unpair')); } catch (e) {}
+});
+
 [['onboardOverlay', closeOnboarding],
+ ['phoneOverlay', closePhone],
  ['helpOverlay', () => $('helpOverlay').classList.remove('open')]]
   .forEach(([id, close]) => $(id).addEventListener('click', (e) => {
     if (e.target === $(id)) close();

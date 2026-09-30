@@ -2,6 +2,7 @@
 .env
 auth.json
 license.json
+lan.json
 driver_db.json
 logs/
 supabase/.temp/

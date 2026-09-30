@@ -8,6 +8,9 @@ create table public.profiles (
   display_name text,
   subscription_status text not null default 'inactive',  -- inactive | active | past_due | canceled
   stripe_customer_id text unique,
+  stripe_subscription_id text,
+  current_period_end timestamptz,
+  billing_synced_at timestamptz,        -- last webhook sync from Stripe
   created_at timestamptz not null default now()
 );
 

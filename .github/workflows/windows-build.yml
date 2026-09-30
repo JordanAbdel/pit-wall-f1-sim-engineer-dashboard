@@ -37,7 +37,9 @@ jobs:
           # up. The anon key is a public client key; it lives in repo secrets
           # so it isn't committed here. The spec bundles this file into
           # _internal — frozen builds refuse to run without it (no dev mode).
-          "SUPABASE_URL=${{ secrets.SUPABASE_URL }}`nSUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}" |
+          # LICENSE_PUBLIC_KEY verifies signed offline licences; without it
+          # the build has no offline grace (see SETUP_BILLING.md).
+          "SUPABASE_URL=${{ secrets.SUPABASE_URL }}`nSUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}`nLICENSE_PUBLIC_KEY=${{ secrets.LICENSE_PUBLIC_KEY }}" |
             Set-Content -NoNewline -Path .env
 
       - name: Build with PyInstaller

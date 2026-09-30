@@ -144,10 +144,6 @@ class Engineer:
         self._zone_mentions = {}         # zone key -> monotonic time last spoken
 
     def handle(self, data: bytes) -> None:
-        # Fully paywalled: without an active subscription (or local dev
-        # mode) no telemetry is processed — no voice, no dashboard data.
-        if self.cloud is not None and not self.cloud.entitled:
-            return
         # m_packetFormat is the first uint16 of every F1 header and has been
         # since 2018, so it reads the same regardless of which layout follows
         # — which is precisely what picks the codec for the rest of the bytes.
@@ -156,6 +152,14 @@ class Engineer:
             return
         fmt = formats.FORMAT_FIELD.unpack_from(data, 0)[0]
         codec = formats.codec_for(fmt)
+        if self.dash:
+            # Before the paywall on purpose: anyone can confirm their
+            # console reaches PitWall (and which game it is) before paying.
+            self.dash.touch(fmt, formats.GAME_NAMES.get(fmt) if codec else None)
+        # Paywalled: without an active subscription (or local dev mode)
+        # nothing past the connection check runs. No voice, no laps.
+        if self.cloud is not None and not self.cloud.entitled:
+            return
         if codec is None:
             if not self._warned_format:
                 self._warned_format = True
@@ -190,9 +194,6 @@ class Engineer:
                             len(data), codec.FORMAT,
                             codec.expected_size(header.packet_id))
             return
-
-        if self.dash:
-            self.dash.touch()
 
         if header.session_uid != self._session_uid:
             if header.session_uid == self._candidate_uid:
@@ -767,6 +768,9 @@ def main() -> None:
     parser.add_argument("--no-browser", action="store_true",
                         help="don't auto-open the dashboard in a browser tab")
     parser.add_argument("--dashboard-port", type=int, default=config.DASHBOARD_PORT)
+    parser.add_argument("--lan", action="store_true",
+                        help="let paired phones/tablets on this network open "
+                             "the dashboard (same as the PHONE button)")
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
@@ -810,6 +814,11 @@ def main() -> None:
         dash.start(args.dashboard_port)
         dashboard_url = f"http://127.0.0.1:{args.dashboard_port}"
         print(f"Pit wall dashboard: {dashboard_url}")
+        lan = dash.set_lan(True) if args.lan else dash.lan_state()
+        if lan["running"]:
+            print(f"Phone/tablet: open {lan['url']} and enter code {lan['code']}")
+        elif lan["error"]:
+            print(f"Phone/tablet access unavailable: {lan['error']}")
         if not args.no_browser:
             # No window of our own (background listener) — open the
             # dashboard automatically so there's something to look at.

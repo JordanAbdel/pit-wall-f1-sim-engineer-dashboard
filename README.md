@@ -10,10 +10,12 @@ original personal tool — LOCAL DEV MODE, no account needed (frozen
 builds always require the license backend). With Supabase + Stripe
 configured it becomes a distributable product: email/password accounts
 and a $4.99/month subscription paywall (Stripe Checkout). The license
-is checked **once at startup** and cached — after that the app never
-phones home mid-session, and a machine that goes offline keeps working
-for 7 days from its last successful check. Session data stays local in
-`driver_db.json`; nothing is uploaded. Setup: `SETUP_BILLING.md`.
+is checked **once at startup**. After that the app never phones home
+mid-session. A machine that goes offline keeps working for 7 days on a
+server-signed licence, which can't be extended by editing the file.
+Users cancel or change their card themselves with **MANAGE
+SUBSCRIPTION**. Session data stays local in `driver_db.json`; nothing
+is uploaded. Setup: `SETUP_BILLING.md`.
 
 ---
 
@@ -202,6 +204,11 @@ changes (new network, router reboot), update the Xbox setting to match.
   boxes (live time ticking, then locked with a delta once complete),
   best lap, theoretical best, tyre compound/wear, fuel, lap-to-lap
   consistency, full lap history, and a pace-trend chart.
+- **Phone / tablet**: click **PHONE** (or start with `--lan`), then open
+  the address it shows on a device on the same Wi-Fi and enter the
+  6-digit code. Paired devices get a view-only dashboard (plus RECAP)
+  on port 8778, laid out for phone and tablet screens. Login and billing
+  stay on the computer. **UNPAIR ALL** signs every device out.
 
 ## Troubleshooting
 
@@ -252,9 +259,12 @@ speak.py       text-to-speech (bundled Kokoro neural voice, `say` fallback)
 trace.py       distance-indexed lap traces, zone comparison, turn names
 memory.py      per-corner memory: streaks, fixes, recurring mistakes, style
 driver_db.py   long-term session database (driver_db.json)
-dashboard.py   local web server for the PIT WALL dashboard
+dashboard.py   local web server for the PIT WALL dashboard (+ LAN listener)
 dashboard.html PIT WALL dashboard UI (incl. login/paywall screens)
-cloud.py       Supabase auth, one-shot license check + offline grace cache
+lan.py         phone/tablet pairing (code -> device cookie)
+cloud.py       Supabase auth, billing links, one-shot license check,
+               signed offline licence
+ed25519.py     verify-only Ed25519 for the offline licence
 supabase/      DB schema + Stripe edge functions (see SETUP_BILLING.md)
 sim.py         synthetic packet sender for testing without the Xbox
 ```
