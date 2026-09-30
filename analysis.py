@@ -35,14 +35,25 @@ class LapResult(NamedTuple):
     stint_delta_ms: int | None = None  # vs. median of recent laps (race pace)
 
 
+def valid_laps(laps: list) -> list:
+    """The laps a best may come from: deleted laps never count while any
+    valid lap exists. With nothing valid yet (Time Trial deletes most
+    attempts) the invalid ones stand in, mirroring the Analyzer's
+    provisional-baseline rule."""
+    valid = [l for l in laps if not l.get("invalid")]
+    return valid or laps
+
+
 def session_recap(laps: list) -> dict | None:
     """Computed view over the session's lap list (dashboard format:
-    [{"lap": n, "sectors": [ms, ms, ms]}, ...]). No new data pipeline."""
+    [{"lap": n, "sectors": [ms, ms, ms], "invalid": bool}, ...]).
+    No new data pipeline."""
     if not laps:
         return None
     times = [sum(l["sectors"]) for l in laps]
-    best_lap_ms = min(times)
-    best_sectors = [min(l["sectors"][i] for l in laps) for i in range(3)]
+    pool = valid_laps(laps)
+    best_lap_ms = min(sum(l["sectors"]) for l in pool)
+    best_sectors = [min(l["sectors"][i] for l in pool) for i in range(3)]
     # Weakest sector = biggest typical gap to its session best (median
     # across laps, so one off doesn't decide it).
     median_gaps = [round(statistics.median(l["sectors"][i] - best_sectors[i]
@@ -59,6 +70,9 @@ def session_recap(laps: list) -> dict | None:
     return {
         "laps": len(laps),
         "best_lap_ms": best_lap_ms,
+        # False when every lap was deleted and the best is a stand-in —
+        # never quote it later as "your best here".
+        "best_lap_valid": not pool[0].get("invalid"),
         "theoretical_ms": sum(best_sectors),
         "weakest_sector": weakest + 1,
         "weakest_gap_ms": median_gaps[weakest],
@@ -77,6 +91,11 @@ class Analyzer:
         self.best_sector_valid = {1: False, 2: False, 3: False}
         self.best_lap_ms = None
         self._current_lap_deltas = {}
+        # Sector bests this lap took as valid, with what they replaced. The
+        # game can delete a lap after S1/S2 have closed (a cut in S3), and
+        # then those sectors must not stand as valid bests.
+        self._taken_this_lap = {}
+        self._taken_lap_num = None
         self._recent_sectors = {1: deque(maxlen=STINT_WINDOW),
                                 2: deque(maxlen=STINT_WINDOW),
                                 3: deque(maxlen=STINT_WINDOW)}
@@ -94,14 +113,25 @@ class Analyzer:
 
     def seed_bests(self, s1_ms: int, s2_ms: int, s3_ms: int, lap_ms: int) -> None:
         """Adopt bests from the game's Session History (e.g. when the listener
-        joins mid-session). Only ever lowers our tracked bests."""
+        joins mid-session). Callers pass 0 for any time the game flagged
+        invalid, so every seeded time is a valid baseline: it replaces a
+        provisional one outright, and otherwise only ever lowers a best."""
         for sector, t in ((1, s1_ms), (2, s2_ms), (3, s3_ms)):
-            if t > 0 and (self.best_sectors[sector] is None or t < self.best_sectors[sector]):
+            if t <= 0:
+                continue
+            best = self.best_sectors[sector]
+            if best is None or not self.best_sector_valid[sector] or t < best:
                 self.best_sectors[sector] = t
+                self.best_sector_valid[sector] = True
         if lap_ms > 0 and (self.best_lap_ms is None or lap_ms < self.best_lap_ms):
             self.best_lap_ms = lap_ms
 
     def on_sector(self, ev: SectorComplete) -> SectorResult:
+        if ev.lap_num != self._taken_lap_num:
+            # A lap abandoned without completing (flashback, restart) must
+            # not have its takes revoked by some later deleted lap.
+            self._taken_this_lap = {}
+            self._taken_lap_num = ev.lap_num
         best = self.best_sectors[ev.sector]
         prev_best_stats = self.best_sector_stats[ev.sector]
         delta = None if best is None else ev.time_ms - best
@@ -118,6 +148,9 @@ class Analyzer:
         else:
             take = best is None or not have_valid or ev.time_ms < best
         if take:
+            if not ev.lap_invalid:
+                self._taken_this_lap[ev.sector] = (
+                    best, have_valid, self.best_sector_stats[ev.sector])
             self.best_sectors[ev.sector] = ev.time_ms
             self.best_sector_valid[ev.sector] = not ev.lap_invalid
             if ev.stats is not None:
@@ -133,6 +166,9 @@ class Analyzer:
         is_best = not ev.invalid and (best is None or ev.lap_time_ms < best)
         if is_best:
             self.best_lap_ms = ev.lap_time_ms
+        if ev.invalid and ev.lap_num == self._taken_lap_num:
+            self._revoke_sector_bests()
+        self._taken_this_lap = {}
 
         losses = {s: d for s, d in self._current_lap_deltas.items() if d is not None and d > 0}
         worst_sector = max(losses, key=losses.get) if losses else None
@@ -140,3 +176,18 @@ class Analyzer:
         stint_delta = self._stint_delta(self._recent_laps, ev.lap_time_ms)
         return LapResult(ev.lap_num, ev.lap_time_ms, delta, is_best, ev.invalid,
                          worst_sector, stint_delta)
+
+    def _revoke_sector_bests(self) -> None:
+        """The lap was deleted after some of its sectors had already been
+        taken as valid bests. Put back the valid best each one replaced;
+        where there wasn't one, keep the faster time as a provisional
+        baseline so the sector still gets coached."""
+        for sector, (prev, prev_valid, prev_stats) in self._taken_this_lap.items():
+            if prev_valid:
+                self.best_sectors[sector] = prev
+                self.best_sector_stats[sector] = prev_stats
+            else:
+                if prev is not None and prev < self.best_sectors[sector]:
+                    self.best_sectors[sector] = prev
+                    self.best_sector_stats[sector] = prev_stats
+                self.best_sector_valid[sector] = False

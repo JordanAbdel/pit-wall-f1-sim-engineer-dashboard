@@ -54,7 +54,11 @@ def make_record(track_id, session_type, recap: dict | None,
 
 
 def last_for_track(records: list, track_id) -> dict | None:
+    """Most recent session here with a best worth quoting. A session where
+    every lap was deleted has only a stand-in best, so it is skipped.
+    Records from before best_lap_valid existed are taken as they are."""
     for record in reversed(records):
-        if record.get("track_id") == track_id:
+        if (record.get("track_id") == track_id
+                and record.get("best_lap_valid", True)):
             return record
     return None

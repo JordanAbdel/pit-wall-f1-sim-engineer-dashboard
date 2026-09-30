@@ -68,6 +68,14 @@ def fmt_delta(delta_ms: int | None) -> str:
     return f"{delta_ms / 1000:+.3f}s"
 
 
+# Packets indexed by the player's car. When there is no player car
+# (spectating, some online lobby states) the header's index is 255, which
+# points past the 22-car array, so these must be skipped, not decoded.
+PER_CAR_PACKETS = frozenset({packets.LAP_DATA, packets.CAR_STATUS,
+                             packets.CAR_DAMAGE, packets.MOTION,
+                             packets.CAR_TELEMETRY})
+
+
 class Engineer:
     def __init__(self, announcer, dash: Dashboard | None = None, cloud=None):
         self.cloud = cloud
@@ -78,6 +86,7 @@ class Engineer:
         self.dash = dash
         self._warned_sizes = set()
         self._warned_format = False
+        self._spectating = False
         self._raw_logged = 0
         # Resolved from the first packet that arrives — the game decides
         # which UDP format we speak, not us.
@@ -218,6 +227,19 @@ class Engineer:
             else:
                 log.info("new session detected — resetting bests and lap history")
                 self._say(self.brain.new_session())
+
+        if header.packet_id in PER_CAR_PACKETS:
+            spectating = header.player_car_index >= packets.NUM_CARS
+            if spectating != self._spectating:
+                self._spectating = spectating
+                log.info("no player car (index %d) — spectating, coaching "
+                         "paused" if spectating else
+                         "player car is back (index %d) — coaching resumed",
+                         header.player_car_index)
+                if self.dash:
+                    self.dash.update(spectating=spectating)
+            if spectating:
+                return
 
         if header.packet_id == packets.LAP_DATA:
             lap = codec.parse_lap_data(data, header.player_car_index)
@@ -630,7 +652,8 @@ class Engineer:
                     l.lap_time_ms if l.valid_flags & 0x01 else 0)
             if self.dash:
                 self.dash.set_laps([
-                    {"lap": n, "sectors": [l.sector1_ms, l.sector2_ms, l.sector3_ms]}
+                    {"lap": n, "sectors": [l.sector1_ms, l.sector2_ms, l.sector3_ms],
+                     "invalid": not l.valid_flags & 0x01}
                     for n, l in complete])
 
         now = time.monotonic()
@@ -640,7 +663,10 @@ class Engineer:
         game_best_s2 = None
         if 0 < history.best_sector2_lap_num <= len(history.laps):
             game_best_s2 = history.laps[history.best_sector2_lap_num - 1].sector2_ms
-        ours = self.analyzer.best_sectors[2]
+        # A provisional best (from a deleted lap, with nothing valid yet) is
+        # expected to differ: the game only counts valid sectors.
+        ours = (self.analyzer.best_sectors[2]
+                if self.analyzer.best_sector_valid[2] else None)
         if game_best_s2 and ours and game_best_s2 != ours:
             pair = (game_best_s2, ours)
             if pair != getattr(self, "_warned_s2", None):

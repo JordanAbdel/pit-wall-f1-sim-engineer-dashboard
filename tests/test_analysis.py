@@ -123,3 +123,79 @@ def test_faster_invalid_lap_still_improves_a_provisional_baseline():
     _sector(a, 2, 2, 19_100, invalid=True)
     assert a.best_sectors[2] == 19_100
     assert not a.best_sector_valid[2]
+
+
+# --- deleted laps never count as a best -------------------------------------
+
+def _lap(n, sectors, invalid=False):
+    return {"lap": n, "sectors": sectors, "invalid": invalid}
+
+
+def test_recap_ignores_a_faster_deleted_lap():
+    laps = [_lap(1, [31_000, 42_800, 28_400]),
+            _lap(2, [30_500, 42_600, 28_000], invalid=True),  # "lap deleted"
+            _lap(3, [31_100, 42_900, 28_300])]
+    r = session_recap(laps)
+    assert r["best_lap_ms"] == 31_000 + 42_800 + 28_400
+    assert r["theoretical_ms"] == 31_000 + 42_800 + 28_300
+    assert r["best_lap_valid"]
+    assert r["laps"] == 3  # still counted as driven
+
+
+def test_recap_falls_back_to_deleted_laps_when_nothing_is_valid():
+    laps = [_lap(1, [31_000, 42_800, 28_400], invalid=True),
+            _lap(2, [30_500, 42_600, 28_000], invalid=True)]
+    r = session_recap(laps)
+    assert r["best_lap_ms"] == 30_500 + 42_600 + 28_000
+    assert not r["best_lap_valid"]
+
+
+def test_lap_deleted_after_s2_gives_back_its_sector_bests():
+    """The log's "best S2 mismatch: game says 42.800, we tracked 42.600":
+    S2 closed clean, then the lap was deleted in S3. The game drops the
+    sector; so must we."""
+    a = Analyzer()
+    a.on_sector(sector(1, 1, 31_000))
+    a.on_sector(sector(1, 2, 42_800))
+    a.on_sector(sector(1, 3, 28_400))
+    a.on_lap(LapComplete(1, 102_200, (31_000, 42_800, 28_400), False))
+
+    a.on_sector(sector(2, 1, 30_900))
+    a.on_sector(sector(2, 2, 42_600))              # valid when it closed
+    a.on_sector(sector(2, 3, 28_000, invalid=True))  # cut in S3: lap deleted
+    a.on_lap(LapComplete(2, 101_500, (30_900, 42_600, 28_000), True))
+
+    assert a.best_sectors == {1: 31_000, 2: 42_800, 3: 28_400}
+    assert all(a.best_sector_valid.values())
+    assert a.best_lap_ms == 102_200
+
+
+def test_deleted_first_lap_stays_a_provisional_baseline():
+    a = Analyzer()
+    a.on_sector(sector(1, 1, 31_000))
+    a.on_sector(sector(1, 2, 42_600))
+    a.on_sector(sector(1, 3, 28_000, invalid=True))
+    a.on_lap(LapComplete(1, 101_600, (31_000, 42_600, 28_000), True))
+    # still a baseline to coach against, but a valid time replaces it
+    assert a.best_sectors[2] == 42_600 and not a.best_sector_valid[2]
+    a.on_sector(sector(2, 2, 42_900))
+    assert a.best_sectors[2] == 42_900 and a.best_sector_valid[2]
+
+
+def test_seeded_bests_are_valid_and_outrank_a_deleted_lap():
+    a = Analyzer()
+    a.seed_bests(31_000, 42_800, 28_400, 102_200)  # from Session History
+    a.on_sector(sector(3, 2, 42_600, invalid=True))
+    assert a.best_sectors[2] == 42_800
+
+
+def test_abandoned_lap_is_not_revoked_by_a_later_deleted_lap():
+    a = Analyzer()
+    a.on_sector(sector(1, 1, 31_000))
+    a.on_sector(sector(1, 2, 42_800))
+    a.on_sector(sector(1, 3, 28_400))
+    a.on_lap(LapComplete(1, 102_200, (31_000, 42_800, 28_400), False))
+    a.on_sector(sector(2, 1, 30_800))  # good S1, then a restart: no LapComplete
+    a.on_sector(sector(3, 1, 31_500, invalid=True))
+    a.on_lap(LapComplete(3, 103_000, (31_500, 43_000, 28_500), True))
+    assert a.best_sectors[1] == 30_800

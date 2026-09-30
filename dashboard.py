@@ -53,6 +53,7 @@ class Dashboard:
             "fuelKg": None,
             "fuelLaps": None,
             "paused": False,
+            "spectating": False,   # no player car: coaching paused
             "trackId": None,
             "advice": None,        # imperative coaching line (centrepiece)
             "sectorStories": {},   # per-sector lost/gained corner bullets

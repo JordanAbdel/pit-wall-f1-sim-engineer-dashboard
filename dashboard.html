@@ -666,8 +666,19 @@ function times_argmin(arr) {
   for (let i = 1; i < arr.length; i++) if (arr[i] < arr[best]) best = i;
   return best;
 }
+// Laps a best may come from: deleted laps never count while any valid lap
+// exists; with nothing valid yet they stand in (same rule as analysis.py).
+function bestPool(laps) {
+  const valid = laps.filter((l) => !l.invalid);
+  return valid.length ? valid : laps;
+}
 function bestSectors(laps) {
-  return [0, 1, 2].map((i) => Math.min.apply(null, laps.map((l) => l.sectors[i])));
+  const pool = bestPool(laps);
+  return [0, 1, 2].map((i) => Math.min.apply(null, pool.map((l) => l.sectors[i])));
+}
+function bestLap(laps) {
+  const pool = bestPool(laps);
+  return pool[times_argmin(pool.map(lapTime))];
 }
 
 function displayedLapMs() {
@@ -723,13 +734,15 @@ function render() {
   const hasLaps = laps.length > 0;
   const bests = hasLaps ? bestSectors(laps) : null;
   const lapTimes = laps.map(lapTime);
-  const bestLapT = hasLaps ? Math.min.apply(null, lapTimes) : null;
+  const pool = hasLaps ? bestPool(laps) : [];
+  const bestLapT = hasLaps ? lapTime(bestLap(laps)) : null;
 
   // Header
   $('sessionLabel').textContent = s.sessionLabel;
   renderTrackMap(s.trackId, s.trackPath);
   updateMapOverlays(s);
   const badge = serverDown ? { label: 'APP CLOSED', color: C.faint }
+    : s.hasSignal && s.spectating ? { label: 'SPECTATING', color: C.yellow }
     : s.live ? { label: 'LIVE', color: C.red }
     : s.hasSignal ? { label: 'PAUSED', color: C.yellow }
     : { label: 'NO SIGNAL', color: C.faint };
@@ -802,8 +815,7 @@ function render() {
 
   // Live performance summary inputs + advice centrepiece + predictions
   if (hasLaps) {
-    const bl = laps[times_argmin(lapTimes)];
-    blSectors = bl.sectors;
+    blSectors = bestLap(laps).sectors;
   } else {
     blSectors = null;
     $('liveDelta').textContent = '––';
@@ -889,21 +901,24 @@ function render() {
   if (hasLaps) {
     const pbSet = new Set();
     let runBest = Infinity;
-    laps.forEach((l) => { const t = lapTime(l); if (t < runBest) { runBest = t; pbSet.add(l.lap); } });
+    pool.forEach((l) => { const t = lapTime(l); if (t < runBest) { runBest = t; pbSet.add(l.lap); } });
     $('historyRows').innerHTML = laps.slice().reverse().slice(0, 10).map((l) => {
       const t = lapTime(l);
-      const isBest = t === bestLapT;
+      const counts = pool.includes(l);  // a deleted lap never shows as a best
+      const isBest = counts && t === bestLapT;
       const isPB = pbSet.has(l.lap);
-      const sc = (i) => (l.sectors[i] === bests[i] ? C.purple : C.text);
-      const timeColor = isBest ? C.purple : isPB ? C.green : C.text;
+      const sc = (i) => (counts && l.sectors[i] === bests[i] ? C.purple : l.invalid ? C.faint : C.text);
+      const timeColor = isBest ? C.purple : isPB ? C.green : l.invalid ? C.faint : C.text;
+      const flag = isBest ? 'BEST' : isPB ? 'PB' : l.invalid ? 'DEL' : '';
+      const flagColor = isBest ? C.purple : l.invalid && !isPB ? C.red : C.green;
       return `<div class="mono hist-cols hist-row" style="background:${isBest ? 'rgba(157,92,255,0.08)' : 'transparent'};
         border-left-color:${isBest ? C.purple : isPB ? C.green : 'transparent'}">
         <div class="hist-lap">${String(l.lap).padStart(2, '0')}</div>
-        <div class="hist-time" style="color:${timeColor}">${fmtLap(t)}</div>
+        <div class="hist-time" style="color:${timeColor}${l.invalid ? '; text-decoration:line-through' : ''}">${fmtLap(t)}</div>
         <div class="hist-sec" style="color:${sc(0)}">${fmtSec(l.sectors[0])}</div>
         <div class="hist-sec" style="color:${sc(1)}">${fmtSec(l.sectors[1])}</div>
         <div class="hist-sec" style="color:${sc(2)}">${fmtSec(l.sectors[2])}</div>
-        <div class="hist-flag" style="color:${isBest ? C.purple : C.green}">${isBest ? 'BEST' : isPB ? 'PB' : ''}</div>
+        <div class="hist-flag" style="color:${flagColor}">${flag}</div>
       </div>`;
     }).join('');
   } else {
@@ -916,15 +931,16 @@ function render() {
   $('trendBars').innerHTML = recent.map((l) => {
     const d = (lapTime(l) - bestLapT) / 1000;
     const h = Math.max(6, Math.min(120, 6 + d * 16));
-    const color = d <= 0 ? C.purple : d <= 0.6 ? C.green : C.neutral;
-    const label = d <= 0 ? 'BEST' : '+' + d.toFixed(2);
+    const best = d <= 0 && pool.includes(l);
+    const color = best ? C.purple : l.invalid ? C.neutral : d <= 0.6 ? C.green : C.neutral;
+    const label = best ? 'BEST' : l.invalid ? 'DEL' : '+' + d.toFixed(2);
     const tip = [`lap ${l.lap}: ${fmtLap(lapTime(l))}`];
     if (l.wear != null) tip.push(`wear ${Math.round(l.wear)}%`);
     if (l.fuel != null) tip.push(`fuel ${l.fuel.toFixed(1)}kg`);
     if (l.invalid) tip.push('DELETED');
     if (l.yellow) tip.push('YELLOW FLAG');
     return `<div class="trend-col" title="${tip.join(' · ')}">
-      <div class="mono trend-delta" style="color:${d <= 0 ? C.purple : C.faint}">${label}</div>
+      <div class="mono trend-delta" style="color:${best ? C.purple : C.faint}">${label}</div>
       ${l.yellow ? '<div class="trend-flag-dot"></div>' : ''}
       <div class="trend-bar${l.invalid ? ' invalid' : ''}" style="background:${color}; height:${h}px"></div>
     </div>`;
@@ -1066,7 +1082,7 @@ function openRecap() {
     return;
   }
   const times = laps.map(lapTime);
-  const bestT = Math.min.apply(null, times);
+  const bestT = lapTime(bestLap(laps));
   const bests = bestSectors(laps);
   const median = (a) => { const s = a.slice().sort((x, y) => x - y);
     const m = Math.floor(s.length / 2);
