@@ -20,6 +20,14 @@ loop. There are two lanes:
 A safety call also makes every routine line in flight stale: the queued
 ones are flushed, the one playing is cut off, and one still being
 synthesized is thrown away rather than played after the call.
+
+Every neural take goes through radio.py on its way out, so the engineer is
+heard the way a driver hears one: over team radio. A line may carry a
+delivery style (persona.Line) that sets how fast it is spoken.
+
+Output goes to the system's default device, or to a named one
+(config.AUDIO_DEVICE) — for example a virtual cable that carries the
+engineer into a Discord call on the Xbox. See docs/XBOX_AUDIO.md.
 """
 import logging
 import os
@@ -33,6 +41,7 @@ import wave
 from collections import deque
 
 import config
+import persona
 
 log = logging.getLogger("speak")
 
@@ -40,8 +49,11 @@ _IS_WIN = sys.platform.startswith("win")
 
 
 class Announcer:
-    def say(self, text: str, priority: bool = False) -> None:
+    def say(self, text: str, priority: bool = False, style: str | None = None) -> None:
         raise NotImplementedError
+
+    def configure(self, voice: str | None = None, radio_fx: bool | None = None) -> None:
+        """Change the voice or the radio effect on the fly (dashboard)."""
 
     def close(self) -> None:
         pass
@@ -50,7 +62,7 @@ class Announcer:
 class NullAnnouncer(Announcer):
     """Console-only mode — the main loop already prints every line."""
 
-    def say(self, text: str, priority: bool = False) -> None:
+    def say(self, text: str, priority: bool = False, style: str | None = None) -> None:
         pass
 
 
@@ -81,7 +93,11 @@ class _QueuedAnnouncer(Announcer):
         self._closed = False
         self._local = threading.local()  # lane + generation of this worker
 
-    def say(self, text: str, priority: bool = False) -> None:
+    def say(self, text: str, priority: bool = False, style: str | None = None) -> None:
+        # The style rides on the text itself, so it survives the queue.
+        if style is not None or not isinstance(text, persona.Line):
+            text = persona.Line(text, style or getattr(text, "style", None)
+                                or ("urgent" if priority else None))
         with self._cv:
             if priority:
                 flushed = len(self._lanes[ROUTINE])
@@ -201,6 +217,126 @@ def _play_wav_cmd(path: str) -> list:
     return ["afplay", path]
 
 
+class _DevicePlayback:
+    """Plays a WAV on a named output device (PortAudio via sounddevice) and
+    looks enough like a Popen — poll, wait, terminate, kill, returncode —
+    that the lanes can cut it off exactly like an afplay process."""
+
+    def __init__(self, path: str, device):
+        import numpy as np
+        import sounddevice as sd
+        with wave.open(path, "rb") as w:
+            sr = w.getframerate()
+            data = np.frombuffer(w.readframes(w.getnframes()),
+                                 dtype=np.int16).astype(np.float32) / 32768
+        info = sd.query_devices(device, "output")
+        out_sr = int(info["default_samplerate"]) or sr
+        if out_sr != sr and len(data):
+            # The voice is band-limited to 3.4 kHz, so linear interpolation
+            # is clean enough and needs nothing beyond numpy.
+            t = np.arange(0, len(data) / sr, 1 / out_sr)
+            data = np.interp(t, np.arange(len(data)) / sr, data).astype(np.float32)
+        channels = max(1, min(2, int(info["max_output_channels"])))
+        self._data = data
+        self._pos = 0
+        self._done = threading.Event()
+        self.returncode = None
+
+        def callback(outdata, frames, _time, _status):
+            chunk = self._data[self._pos:self._pos + frames]
+            self._pos += frames
+            outdata[:len(chunk)] = chunk[:, None]
+            outdata[len(chunk):] = 0
+            if len(chunk) < frames:
+                raise sd.CallbackStop
+
+        self._stream = sd.OutputStream(samplerate=out_sr, device=device,
+                                       channels=channels, dtype="float32",
+                                       callback=callback,
+                                       finished_callback=self._done.set)
+        self._stream.start()
+
+    def poll(self):
+        return self.returncode if self._done.is_set() else None
+
+    def wait(self, timeout=None):
+        if not self._done.wait(timeout):
+            raise subprocess.TimeoutExpired("sounddevice", timeout)
+        if self.returncode is None:
+            self.returncode = 0
+        self._stream.close()
+        return self.returncode
+
+    def terminate(self):
+        if not self._done.is_set():
+            self.returncode = -15  # as if SIGTERM'd, like afplay
+            self._stream.abort()
+            self._done.set()
+
+    kill = terminate
+
+
+# Resolved once by make_announcer: None plays through the default device
+# with afplay / SoundPlayer, anything else is a sounddevice device index.
+_OUTPUT_DEVICE = None
+_OUTPUT_DEVICE_NAME = None
+
+
+def output_devices() -> list:
+    """(index, name) of every output device, or [] without sounddevice."""
+    try:
+        import sounddevice as sd
+        return [(i, d["name"]) for i, d in enumerate(sd.query_devices())
+                if d["max_output_channels"] > 0]
+    except Exception:
+        return []
+
+
+def resolve_device(name: str | None):
+    """Device index for a (case-insensitive, partial) device name, or None
+    for the system default. Unknown names are logged and ignored, so a
+    typo never costs the driver his engineer."""
+    if not name:
+        return None
+    devices = output_devices()
+    want = name.strip().lower()
+    for i, dev in devices:
+        if dev.lower() == want:
+            return i
+    for i, dev in devices:
+        if want in dev.lower():
+            return i
+    if not devices:
+        log.warning("audio device %r requested but sounddevice is not "
+                    "available — using the default output", name)
+    else:
+        log.warning("no output device matches %r — using the default output. "
+                    "Available: %s", name, ", ".join(d for _, d in devices))
+    return None
+
+
+def set_output_device(name: str | None):
+    """Point the engineer at another output device while running. Returns
+    the matched device name, or None for the system default."""
+    global _OUTPUT_DEVICE, _OUTPUT_DEVICE_NAME
+    _OUTPUT_DEVICE = resolve_device(name)
+    _OUTPUT_DEVICE_NAME = (dict(output_devices()).get(_OUTPUT_DEVICE)
+                           if _OUTPUT_DEVICE is not None else None)
+    if _OUTPUT_DEVICE_NAME:
+        log.info("engineer audio → %s", _OUTPUT_DEVICE_NAME)
+    return _OUTPUT_DEVICE_NAME
+
+
+def _play(path: str):
+    if _OUTPUT_DEVICE is not None:
+        try:
+            return _DevicePlayback(path, _OUTPUT_DEVICE)
+        except Exception:
+            log.exception("could not play on device %s — default output instead",
+                          _OUTPUT_DEVICE)
+    return subprocess.Popen(_play_wav_cmd(path))
+
+
 def _say_builtin(text: str, voice: str, rate: int, register=None) -> None:
     # Text via stdin so nothing is ever parsed as a flag (Jarvis pattern).
     # This is the last-resort fallback when neural TTS is unavailable:
@@ -212,6 +348,8 @@ def _say_builtin(text: str, voice: str, rate: int, register=None) -> None:
         cmd = ["powershell", "-NoProfile", "-Command", script]
     else:
         cmd = ["say", "-v", voice, "-r", str(rate)]
+        if _OUTPUT_DEVICE_NAME:
+            cmd += ["-a", _OUTPUT_DEVICE_NAME]  # say picks devices by name
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stderr=subprocess.DEVNULL,
                             text=True)
     if register:
@@ -238,9 +376,10 @@ class SayTTS(_QueuedAnnouncer):
 
 
 class KokoroTTS(_QueuedAnnouncer):
-    def __init__(self, voice: str, speed: float, precache=()):
+    def __init__(self, voice: str, speed: float, precache=(), radio_fx: bool = True):
         self.voice = voice
         self.speed = speed
+        self.radio_fx = radio_fx
         self._kokoro = None
         # Fixed phrases rendered ahead of time. These are the safety calls,
         # where the delay before the driver hears anything matters most and
@@ -274,9 +413,14 @@ class KokoroTTS(_QueuedAnnouncer):
         except Exception:
             log.exception("kokoro warmup failed — lines will fall back to say")
             return
+        self._render_precache()
+
+    def _render_precache(self) -> None:
         for text in self._precache:
             try:
-                path = self._synth_wav(text)
+                # Safety calls are always delivered urgently.
+                path = self._synth_wav(text, persona.speed_for(
+                    persona.Line(text, "urgent"), self.speed))
             except Exception:
                 log.exception("pre-cache failed for %r — it will be "
                               "synthesized on demand instead", text)
@@ -286,12 +430,19 @@ class KokoroTTS(_QueuedAnnouncer):
         if self._precache:
             log.info("pre-rendered %d safety calls", len(self._cache))
 
-    def _synth_wav(self, text: str) -> str:
-        """Synthesize one chunk to a temp WAV and return its path."""
+    def _synth_wav(self, text: str, speed: float | None = None,
+                   key_up: bool = True, key_down: bool = True) -> str:
+        """Synthesize one chunk to a temp WAV and return its path. key_up /
+        key_down: whether this chunk opens / closes the radio transmission
+        (a streamed line is one transmission, not one per sentence)."""
         import numpy as np
         with self._synth_lock:
             samples, sr = self._get_kokoro().create(
-                text, voice=self.voice, speed=self.speed, lang="en-gb")
+                text, voice=self.voice, speed=speed or self.speed, lang="en-gb")
+        if self.radio_fx:
+            import radio
+            samples = radio.transmission(samples, sr, key_up=key_up,
+                                         key_down=key_down)
         pcm = (np.clip(samples, -1.0, 1.0) * 32767).astype(np.int16)
         # mkstemp (not NamedTemporaryFile) because on Windows a still-open
         # NamedTemporaryFile can't be reopened by the player process.
@@ -311,8 +462,10 @@ class KokoroTTS(_QueuedAnnouncer):
         # one whose synthesis the driver ever waits on; every later chunk is
         # generated under the previous chunk's playback, which runs longer
         # than the synthesis it hides.
+        speed = persona.speed_for(text, self.speed)
         chunks = _chunks(text)
-        path, owned = self._wav_for(chunks[0])
+        last = len(chunks) - 1
+        path, owned = self._wav_for(chunks[0], speed, True, last == 0)
         try:
             for i in range(len(chunks)):
                 # A safety call arrived while this chunk was synthesizing:
@@ -321,12 +474,13 @@ class KokoroTTS(_QueuedAnnouncer):
                     log.info("dropped coaching overtaken by a safety call: %r",
                              text)
                     break
-                proc = subprocess.Popen(_play_wav_cmd(path))
+                proc = _play(path)
                 self._register(proc)
                 nxt = (None, False)
                 if i + 1 < len(chunks):
                     try:
-                        nxt = self._wav_for(chunks[i + 1])
+                        nxt = self._wav_for(chunks[i + 1], speed, False,
+                                            i + 1 == last)
                     except Exception:
                         log.exception("chunk synthesis failed — truncating line")
                 try:
@@ -344,26 +498,49 @@ class KokoroTTS(_QueuedAnnouncer):
             if owned:
                 _unlink(path)
 
-    def _wav_for(self, text: str):
+    def _wav_for(self, text: str, speed: float | None = None,
+                 key_up: bool = True, key_down: bool = True):
         """(wav path, whether this call owns the file). Pre-rendered phrases
         are shared and must outlive the line that played them."""
         with self._cache_lock:
             hit = self._cache.get(text)
         if hit is not None:
             return hit, False
-        return self._synth_wav(text), True
+        return self._synth_wav(text, speed, key_up, key_down), True
 
-    def close(self) -> None:
-        super().close()
+    def configure(self, voice: str | None = None, radio_fx: bool | None = None) -> None:
+        changed = False
+        with self._synth_lock:  # never swap the voice under a synthesis
+            if voice and voice != self.voice:
+                self.voice, changed = voice, True
+            if radio_fx is not None and radio_fx != self.radio_fx:
+                self.radio_fx, changed = radio_fx, True
+        if not changed:
+            return
+        log.info("voice now %s, radio effect %s", self.voice,
+                 "on" if self.radio_fx else "off")
+        # The pre-rendered safety calls are in the old voice: drop them and
+        # render the new ones in the background (on-demand until then).
+        self._drop_cache()
+        threading.Thread(target=self._render_precache, daemon=True).start()
+
+    def _drop_cache(self) -> None:
         with self._cache_lock:
             for path in self._cache.values():
                 _unlink(path)
             self._cache.clear()
 
+    def close(self) -> None:
+        super().close()
+        self._drop_cache()
 
-def make_announcer(enabled: bool, engine: str, voice: str, rate: int) -> Announcer:
+
+def make_announcer(enabled: bool, engine: str, voice: str, rate: int,
+                   kokoro_voice: str | None = None, radio_fx: bool = True,
+                   device: str | None = None) -> Announcer:
     if not enabled:
         return NullAnnouncer()
+    set_output_device(device)
     if engine == "kokoro":
         try:
             import kokoro_onnx  # noqa: F401 — availability check only
@@ -371,8 +548,9 @@ def make_announcer(enabled: bool, engine: str, voice: str, rate: int) -> Announc
             if not config.KOKORO_MODEL.exists() or not config.KOKORO_VOICES.exists():
                 raise FileNotFoundError(f"kokoro models not found at {config.KOKORO_MODEL.parent}")
             from brain import RaceEngineer
-            return KokoroTTS(config.KOKORO_VOICE, config.KOKORO_SPEED,
-                             precache=RaceEngineer.FLAG_CALLS.values())
+            return KokoroTTS(kokoro_voice or config.KOKORO_VOICE, config.KOKORO_SPEED,
+                             precache=RaceEngineer.FLAG_CALLS.values(),
+                             radio_fx=radio_fx)
         except Exception as e:
             log.warning("neural voice unavailable (%s) — falling back to "
                         "built-in say. Run pip install kokoro-onnx numpy "

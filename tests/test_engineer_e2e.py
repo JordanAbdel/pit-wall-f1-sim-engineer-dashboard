@@ -16,10 +16,10 @@ class CaptureAnnouncer:
         pass
 
 
-def replay(rival=False):
+def replay(rival=False, dash=None):
     """Compact port of sim.main()'s send loop, calling handle() directly."""
     announcer = CaptureAnnouncer()
-    eng = main_mod.Engineer(announcer, dash=None, cloud=None)
+    eng = main_mod.Engineer(announcer, dash=dash, cloud=None)
     session_type = 18 if rival else 1
     tick, frame, sim_t = 0.1, 0, 0.0
     completed = []
@@ -83,3 +83,24 @@ def test_time_trial_with_rival():
     # lap 6 (1:40.9) beats the rival's 1:41.0 — the payoff line
     assert "ahead of the rival" in joined
     assert eng._laps_seen == len(sim.LAPS)
+
+
+def test_dashboard_gets_traces_radio_and_inputs():
+    from dashboard import Dashboard
+    dash = Dashboard()
+    eng, lines = replay(dash=dash)
+    eng.handle(sim.car_damage_packet(200.0, 99_999, 12.5))  # replay() sends
+    eng.handle(sim.car_status_packet(200.0, 99_999, 5, 20.0))  # neither
+    snap = dash.snapshot()
+    assert [r["text"] for r in snap["radio"]] == lines[-len(snap["radio"]):]
+    assert snap["speedKph"] is not None and snap["gear"] is not None
+    assert len(snap["wearCorners"]) == 4
+    assert 0 <= snap["ersPct"] <= 100
+    assert snap["sessionLabel"].startswith("Silverstone")
+    traces = dash.traces()
+    assert traces["version"] >= 1
+    last, best = traces["last"], traces["best"]
+    assert last["lapMs"] == 100_900                     # lap 6, the new best
+    # It just became the reference, so it's drawn against the lap it beat.
+    assert traces["bestLabel"] == "previous best" and best["lapMs"] == 102_100
+    assert last["time"][0] is not None and last["time"][-1] > last["time"][0]

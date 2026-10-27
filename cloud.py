@@ -1,4 +1,6 @@
-"""Cloud backend — Supabase auth and subscription entitlement.
+"""Cloud backend — account sign-in and subscription entitlement, against
+the licence API (cloudflare/: a Worker + D1 that speaks the same paths the
+old Supabase project did).
 
 License model: ONE check against the server at startup, then hands off.
 When the check says the user is entitled, the server also issues an
@@ -127,7 +129,7 @@ def _load_public_key() -> bytes | None:
 
 class Cloud:
     def __init__(self):
-        self.configured = bool(config.SUPABASE_URL and config.SUPABASE_ANON_KEY)
+        self.configured = bool(config.API_URL)
         self.email = None
         self.user_id = None
         self.status = None           # profiles.subscription_status
@@ -140,7 +142,7 @@ class Cloud:
         self._grace_days_left = 0.0
         self._public_key = _load_public_key()
         if not self.configured:
-            log.warning("no SUPABASE_URL/SUPABASE_ANON_KEY — running in LOCAL "
+            log.warning("no PITWALL_API_URL — running in LOCAL "
                         "DEV MODE (no auth, no paywall)")
             return
         if not self._public_key:
@@ -439,8 +441,9 @@ class Cloud:
         on any non-2xx status."""
         cmd = ["curl", "-s", "-X", method,
                "-w", "\n%{http_code}",
-               "-H", f"apikey: {config.SUPABASE_ANON_KEY}",
                "-H", "Content-Type: application/json"]
+        if config.SUPABASE_ANON_KEY:   # only the old Supabase backend needs it
+            cmd += ["-H", f"apikey: {config.SUPABASE_ANON_KEY}"]
         if auth:
             with self._lock:
                 token = self._access
@@ -452,7 +455,7 @@ class Cloud:
         if body is not None:
             # Via stdin, so passwords never appear in the process list.
             cmd += ["--data-binary", "@-"]
-        cmd.append(config.SUPABASE_URL + path)
+        cmd.append(config.API_URL + path)
 
         try:
             result = subprocess.run(

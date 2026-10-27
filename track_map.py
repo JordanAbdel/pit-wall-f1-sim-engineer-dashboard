@@ -135,12 +135,38 @@ def save(maps: dict) -> None:
         log.warning("could not write %s", STORE, exc_info=True)
 
 
+# Game years drive different layouts under one track id (Singapore before
+# and after 2023, Catalunya with and without its final chicane), so a map is
+# only reused when its lap length matches the session's.
+SAME_LAYOUT_M = 50
+
+
+def _key(maps: dict, track_id, track_length):
+    """The store key for this track's layout: the bare id for the first one
+    recorded (and for maps saved before layouts were told apart), the id
+    plus the lap length for any other layout."""
+    key = str(track_id)
+    entry = maps.get(key)
+    if entry is None or not track_length or not entry.get("trackLength"):
+        return key
+    if abs(entry["trackLength"] - track_length) <= SAME_LAYOUT_M:
+        return key
+    return f"{track_id}:{track_length}"
+
+
+def lookup(maps: dict, track_id, track_length=None):
+    """The recorded map for this track and layout, or None."""
+    if track_id is None:
+        return None
+    return maps.get(_key(maps, track_id, track_length))
+
+
 def record(maps: dict, track_id: int, points, track_length: int | None = None):
     """Store a lap's outline for track_id. Returns the entry, or None if the
     lap was unusable. An existing map is kept — one good lap is enough."""
     if track_id is None:
         return None
-    key = str(track_id)
+    key = _key(maps, track_id, track_length)
     if key in maps:
         return maps[key]
     entry = to_path(points)

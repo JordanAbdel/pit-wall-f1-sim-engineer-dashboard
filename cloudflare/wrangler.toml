@@ -1,0 +1,22 @@
+# PitWall licence API on Cloudflare Workers + D1 (free tier; never pauses).
+# Setup steps: SETUP_BILLING.md. Secrets are set with `wrangler secret put`
+# and never live in this file:
+#   AUTH_SECRET          random string that signs access tokens
+#   STRIPE_SECRET_KEY    sk_test_… / sk_live_…
+#   STRIPE_WEBHOOK_SECRET whsec_… from the Stripe webhook endpoint
+#   LICENSE_SIGNING_KEY  base64 PKCS#8 Ed25519 key (scripts/gen_license_keys.mjs)
+name = "pitwall-api"
+main = "src/index.ts"
+workers_dev = true
+preview_urls = false
+compatibility_date = "2025-09-01"
+
+[vars]
+STRIPE_PRICE_ID = "price_1TsEfqJgFMFFcHHDLqTqPw2Z"          # price_… for the $4.99/month plan
+APP_URL = "http://127.0.0.1:8777"
+TRIAL_DAYS = "0"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "pitwall"
+database_id = "bb165f97-8fb5-437e-b3f7-5c90884ee3c0"

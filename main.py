@@ -22,20 +22,24 @@ import traceback
 import webbrowser
 from collections import deque
 
+import ai as ai_mod
 import analysis
 import cloud as cloud_mod
 import config
 import driver_db
 import formats
 import packets
+import persona
 import reference
+import settings as settings_mod
+import speak
 import trace
 import track_map
 from analysis import Analyzer
 from brain import RaceEngineer
 from dashboard import Dashboard
 from memory import CornerMemory
-from speak import make_announcer
+from speak import make_announcer, output_devices
 from state import LapComplete, SectorComplete, SessionState
 
 CORNER_NOTE_MIN_DELTA_MS = 200  # only localize losses worth talking about
@@ -55,6 +59,7 @@ log = logging.getLogger("engineer")
 # in a real session the UID is rock solid (verified against the Xbox).
 # Only treat a UID change as a new session once it has stayed put this long.
 SESSION_STABLE_PACKETS = 20
+ERS_STORE_J = 4_000_000  # a full ERS battery in every F1 game since 2018
 
 
 def fmt_ms(ms: int) -> str:
@@ -77,13 +82,21 @@ PER_CAR_PACKETS = frozenset({packets.LAP_DATA, packets.CAR_STATUS,
 
 
 class Engineer:
-    def __init__(self, announcer, dash: Dashboard | None = None, cloud=None):
+    def __init__(self, announcer, dash: Dashboard | None = None, cloud=None,
+                 driver_name: str | None = None, ai=None):
         self.cloud = cloud
         self.state = SessionState()
         self.analyzer = Analyzer()
         self.brain = RaceEngineer()
         self.announcer = announcer
         self.dash = dash
+        # The person behind the calls: outlives sessions, so the name is not
+        # suddenly said twice in a row just because a new session started.
+        self.persona = persona.Persona(driver_name)
+        self.ai = ai  # optional free-form answers (ai.EngineerAI)
+        self._weather = None
+        self._tyres_seen_worn = False
+        self.settings = dict(settings_mod.DEFAULTS, driverName=driver_name or "")
         self._warned_sizes = set()
         self._warned_format = False
         self._spectating = False
@@ -106,6 +119,7 @@ class Engineer:
         self._db = driver_db.load()
         self._history_announced = False
         self._wear_pct = None
+        self._wear_corners = None
         self._track_maps = track_map.load()
         self._map_rec = track_map.MapRecorder()
         self.reference = reference.ReferenceTimes()
@@ -137,6 +151,7 @@ class Engineer:
         self._best_trace_valid = False
         self._trace_window = deque(maxlen=4)  # recent full laps, race reference
         self._last_lap_distance = 0.0
+        self._last_lap_time_ms = None
         self._sector_start_m = 0.0
         self._live_watcher = trace.LiveZoneWatcher()
         self._last_live_call = 0.0
@@ -219,10 +234,13 @@ class Engineer:
             self.reference = reference.ReferenceTimes()
             self._reset_traces()
             self._reset_flags()
+            self._weather = None
+            self._tyres_seen_worn = False
             if self.dash:
                 self.dash.set_laps([])
                 self.dash.update(advice=None, sectorStories={}, profile=[],
-                                 recurring=None, weakTurns=[])
+                                 recurring=None, weakTurns=[], wearCorners=None)
+                self.dash.set_traces(None, None)
             if first:
                 self._say(self.brain.radio_check())
             else:
@@ -246,6 +264,7 @@ class Engineer:
             lap = codec.parse_lap_data(data, header.player_car_index)
             prev_dist = self._last_lap_distance
             self._last_lap_distance = lap.lap_distance
+            self._last_lap_time_ms = lap.current_lap_time_ms
             events = self.state.update_from_lap_data(header, lap)
             for event in events:
                 self._on_event(event)
@@ -281,22 +300,36 @@ class Engineer:
                 wear = codec.wear_from_car_status(data, header.player_car_index)
                 if wear:
                     self._wear_pct = round(sum(wear) / 4, 1)
+                    self._wear_corners = [round(w, 1) for w in wear]
+                    self._check_tyres()
             if self.dash:
                 self.dash.update(
                     compound=VISUAL_COMPOUND_NAMES.get(status.visual_tyre_compound),
                     tyreAge=status.tyres_age_laps,
                     fuelKg=round(status.fuel_in_tank, 2),
                     fuelLaps=round(status.fuel_remaining_laps, 2),
-                    wearPct=self._wear_pct)
+                    wearPct=self._wear_pct,
+                    wearCorners=self._wear_corners,
+                    maxRpm=status.max_rpm or None,
+                    ersPct=round(min(100.0, status.ers_store_energy
+                                     / ERS_STORE_J * 100), 1),
+                    ersMode=status.ers_deploy_mode)
         elif header.packet_id == packets.SESSION:
             info = codec.parse_session(data)
             self._track_id = info.track_id
             self._track_length = info.track_length
+            trace.set_track_length(info.track_id, info.track_length)
             self._session_type = info.session_type
             self._race_mode = info.session_type in codec.RACE_SESSION_TYPES
             self.brain.race_mode = self._race_mode
             self.brain.quali_mode = (info.session_type
                                      in codec.QUALI_SESSION_TYPES)
+            self.brain.total_laps = info.total_laps or None
+            if self._weather is not None and info.weather != self._weather:
+                line = self.brain.weather_line(self._weather, info.weather)
+                if line:
+                    self._say(line)
+            self._weather = info.weather
             self.reference.set_track(info.track_id)
             self._check_session_flags(codec.parse_session_flags(data))
             if not self._history_announced:
@@ -308,29 +341,45 @@ class Engineer:
                 game = formats.GAME_NAMES.get(codec.FORMAT, "F1")
                 track = packets.TRACK_NAMES.get(info.track_id, game)
                 session = codec.SESSION_TYPE_NAMES.get(info.session_type, "")
-                label = " · ".join(p.upper() for p in (track, session, game) if p)
+                label = " · ".join(p for p in (track, session, game) if p)
                 self.dash.update(sessionLabel=label, paused=bool(info.game_paused),
+                                 weather=info.weather,
+                                 trackTemp=info.track_temperature,
+                                 airTemp=info.air_temperature,
+                                 totalLaps=info.total_laps or None,
+                                 raceMode=self._race_mode,
+                                 timeLeftS=info.session_time_left,
                                  trackId=info.track_id,
                                  trackLength=info.track_length,
-                                 trackPath=self._track_maps.get(
-                                     str(info.track_id)),
+                                 trackPath=track_map.lookup(
+                                     self._track_maps, info.track_id,
+                                     info.track_length),
                                  reference=self.reference.state())
         elif header.packet_id == packets.CAR_DAMAGE:
             wear = codec.parse_tyre_wear(data, header.player_car_index)
             self._wear_pct = round(sum(wear) / 4, 1)
+            self._wear_corners = [round(w, 1) for w in wear]
+            self._check_tyres()
             if self.dash:
-                self.dash.update(wearPct=self._wear_pct)
+                self.dash.update(wearPct=self._wear_pct,
+                                 wearCorners=self._wear_corners)
         elif header.packet_id == packets.MOTION:
             # Build an accurate circuit outline from where the car actually
             # goes, rather than relying on the hand-drawn sketches.
-            if self._track_id is not None and str(self._track_id) not in self._track_maps:
+            if (self._track_id is not None and track_map.lookup(
+                    self._track_maps, self._track_id, self._track_length) is None):
                 x, _y, z = codec.parse_car_position(data, header.player_car_index)
                 self._map_rec.add(self._last_lap_distance, x, z)
         elif header.packet_id == packets.CAR_TELEMETRY:
             tel = codec.parse_car_telemetry(data, header.player_car_index)
             self.state.update_from_telemetry(tel)
             self._cur_trace.add(self._last_lap_distance, tel.speed_kph,
-                                tel.throttle, tel.brake)
+                                tel.throttle, tel.brake, self._last_lap_time_ms)
+            if self.dash:
+                self.dash.update(speedKph=tel.speed_kph, gear=tel.gear,
+                                 throttle=round(tel.throttle, 3),
+                                 brake=round(tel.brake, 3),
+                                 rpm=tel.engine_rpm, drs=bool(tel.drs))
             zone = self._live_watcher.feed(self._last_lap_distance,
                                            tel.speed_kph, tel.throttle, tel.brake)
             if zone is not None:
@@ -434,6 +483,15 @@ class Engineer:
                     self._prev_best_trace = self._best_trace
                     self._best_trace = self._cur_trace
                     self._best_trace_valid = valid
+            if full_lap and self.dash:
+                # A lap that just became the reference is drawn against
+                # the one it beat, so the overlay still shows something.
+                ref, label = self._reference_trace(), "best"
+                if ref is self._cur_trace:
+                    ref, label = self._prev_best_trace, "previous best"
+                self.dash.set_traces(
+                    self._cur_trace.compact(),
+                    ref.compact() if ref is not None else None, label)
             if full_lap and self._map_rec.complete(self._track_length):
                 entry = track_map.record(self._track_maps, self._track_id,
                                          self._map_rec.points,
@@ -471,8 +529,11 @@ class Engineer:
         self._last_flag = (kind, now)
         line = self.brain.flag_line(kind, seconds)
         if line:
+            line = self.persona.deliver(line)  # flags go out bare
             print(f'  🚩 "{line}"')
             self.announcer.say(line, priority=True)
+            if self.dash:
+                self.dash.radio(line, priority=True)
 
     def _check_session_flags(self, flags) -> None:
         yellow = flags.yellow_zones > 0
@@ -493,12 +554,16 @@ class Engineer:
             elif sc == packets.SC_NONE and prev in (packets.SC_FULL,
                                                     packets.SC_VIRTUAL):
                 self._flag("green")
+        if self.dash:
+            self.dash.update(yellowFlag=self._yellow, safetyCar=self._sc_status)
 
     def _on_game_event(self, ev, header) -> None:
         if ev.code == "RDFL":
             self._flag("red")
         elif ev.code == "CHQF":
             self._flag("chequered")
+            self._say(self.brain.finish_line(self.state.car_position,
+                                             self._race_mode))
         elif ev.code == "SCAR":
             scar = packets.parse_safety_car_event(ev)
             if scar.event_type == 1:  # returning — status change covers the rest
@@ -622,8 +687,112 @@ class Engineer:
             self._db = driver_db.load()
 
     def _say(self, line: str) -> None:
+        line = self.persona.deliver(line)
         print(f'  🎧 "{line}"')
         self.announcer.say(line)
+        if self.dash:
+            self.dash.radio(line)
+
+    def _check_tyres(self) -> None:
+        """Volunteer tyre news the way an engineer would: once when a set
+        is past half-way, once when it is getting critical, and a word when
+        a fresh set goes on."""
+        wear = self._wear_corners
+        if not wear:
+            return
+        worst = max(wear)
+        if worst >= 10:
+            self._tyres_seen_worn = True
+        elif worst < 3 and self._tyres_seen_worn:
+            self._tyres_seen_worn = False
+            self._say(self.brain.new_tyres_line(
+                VISUAL_COMPOUND_NAMES.get(self.state.visual_tyre_compound)))
+            return
+        if self.brain.quali_mode:
+            return
+        line = self.brain.tyre_wear_line(wear)
+        if line:
+            self._say(line)
+
+    def settings_view(self) -> dict:
+        return {"settings": dict(self.settings),
+                "voices": settings_mod.VOICES,
+                "devices": [name for _, name in output_devices()],
+                "activeDevice": speak._OUTPUT_DEVICE_NAME,
+                "aiAnswers": bool(self.ai and self.ai.enabled)}
+
+    def apply_settings(self, raw: dict, save: bool = True) -> dict:
+        """Settings from the dashboard: who the driver is, which voice,
+        radio effect on or off, and where the voice plays."""
+        self.settings = settings_mod.clean(raw, self.settings)
+        self.persona.name = self.settings["driverName"] or None
+        getattr(self.announcer, "configure", lambda **k: None)(
+            voice=self.settings["voice"], radio_fx=self.settings["radioFx"])
+        speak.set_output_device(self.settings["audioDevice"])
+        if save:
+            settings_mod.save(self.settings)
+        return self.settings_view()
+
+    def radio_test(self) -> None:
+        """A transmission on demand, to check the audio route end to end."""
+        self._say(persona.Line(self.persona.address(self.brain._pick("test", [
+            "Radio check. If you can hear me, we're good to go.",
+            "Testing, testing. You should have me loud and clear.",
+        ]), force=True), None, "info"))
+
+    def radio_context(self) -> dict:
+        """Everything the engineer can see, for answering the driver."""
+        snap = self.dash.snapshot() if self.dash else {}
+        laps = snap.get("laps", [])
+        recap = analysis.session_recap(laps)
+        last_ms = sum(laps[-1]["sectors"]) if laps else None
+        st = self.state
+        return {
+            "race": self._race_mode,
+            "track_id": self._track_id,
+            "track": packets.TRACK_NAMES.get(self._track_id),
+            "lap": st.lap_num,
+            "total_laps": self.brain.total_laps,
+            "position": st.car_position,
+            "gap_ahead_ms": st.gap_ahead_ms,
+            "compound": VISUAL_COMPOUND_NAMES.get(st.visual_tyre_compound),
+            "tyre_age": st.tyre_age_laps,
+            "wear_corners": self._wear_corners,
+            "fuel_laps": (round(st.fuel_remaining_laps, 2)
+                          if st.fuel_remaining_laps is not None else None),
+            "best_ms": recap["best_lap_ms"] if recap else self.analyzer.best_lap_ms,
+            "last_ms": last_ms,
+            "theoretical_ms": recap["theoretical_ms"] if recap else None,
+            "weakest_sector": recap["weakest_sector"] if recap else None,
+            "weakest_gap_ms": recap["weakest_gap_ms"] if recap else 0,
+            "recent_laps_ms": [sum(l["sectors"]) for l in laps[-6:]],
+            "top_issue": self.memory.top_issue(),
+            "weather": self._weather,
+            "track_temp": snap.get("trackTemp"),
+            "air_temp": snap.get("airTemp"),
+        }
+
+    def ask(self, question: str) -> str:
+        """The driver pressed talk (dashboard) — answer over the radio.
+        Scripted answers come straight from the data; anything else goes to
+        the optional AI, and failing that, "say again"."""
+        question = " ".join(str(question).split())[:200]
+        if not question:
+            return ""
+        if self.dash:
+            self.dash.radio(question, who="driver")
+        print(f'  🎙  "{question}"')
+        ctx = self.radio_context()
+        if self.brain.intent(question) is None and self.ai is not None \
+                and self.ai.enabled:
+            text = self.ai.ask(question, ctx)
+            if text:
+                line = persona.Line(text, None, "answer")
+                self._say(line)
+                return str(line)
+        line = self.brain.answer(question, ctx)
+        self._say(line)
+        return str(line)
 
     def _check_history(self, data: bytes, header, codec) -> None:
         """Backfill laps recorded before we started listening, and cross-check
@@ -761,8 +930,23 @@ def main() -> None:
                         default=config.TTS_ENGINE,
                         help="kokoro = natural neural voice (bundled), "
                              "say = built-in fallback")
-    parser.add_argument("--voice", default=config.TTS_VOICE)
+    parser.add_argument("--voice", default=config.TTS_VOICE,
+                        help="built-in fallback voice (say)")
     parser.add_argument("--rate", type=int, default=config.TTS_RATE)
+    parser.add_argument("--engineer-voice", default=config.KOKORO_VOICE,
+                        help="neural voice: bm_lewis, bm_george, bm_daniel, "
+                             "bm_fable (British male), or any kokoro voice")
+    parser.add_argument("--driver-name", default=config.DRIVER_NAME,
+                        help="what the engineer calls you on the radio")
+    parser.add_argument("--clean-voice", action="store_true",
+                        default=not config.RADIO_FX,
+                        help="no team-radio effect — the plain voice")
+    parser.add_argument("--audio-device", default=config.AUDIO_DEVICE,
+                        help="send the engineer to this output device (part "
+                             "of its name), e.g. \"BlackHole 2ch\" for the "
+                             "Xbox/Discord bridge — see docs/XBOX_AUDIO.md")
+    parser.add_argument("--list-audio-devices", action="store_true",
+                        help="print the output devices and exit")
     parser.add_argument("--no-dashboard", action="store_true",
                         help="don't serve the pit-wall web dashboard")
     parser.add_argument("--no-browser", action="store_true",
@@ -774,12 +958,20 @@ def main() -> None:
     parser.add_argument("-v", "--verbose", action="store_true")
     args = parser.parse_args()
 
+    if args.list_audio_devices:
+        devices = output_devices()
+        if not devices:
+            print("No output devices found (is sounddevice installed?)")
+        for i, name in devices:
+            print(f"  {i:>2}  {name}")
+        return
+
     log_path = setup_logging(args.verbose)
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((config.BIND_IP, args.port))
     sock.settimeout(1.0)
-    print(f"Listening for F1 25 telemetry on UDP {config.BIND_IP}:{args.port} …")
+    print(f"Listening for F1 telemetry (F1 2020-25) on UDP {config.BIND_IP}:{args.port} …")
     if log_path:
         print(f"Logs (send this if something breaks): {log_path}")
 
@@ -792,14 +984,14 @@ def main() -> None:
 
     # Frozen builds must always run against the license backend — LOCAL DEV
     # MODE is a source-checkout convenience only, never a shipped fallback.
-    if config.IS_FROZEN and not (config.SUPABASE_URL and config.SUPABASE_ANON_KEY):
+    if config.IS_FROZEN and not config.API_URL:
         print("This build is missing its licensing configuration and cannot "
               "run.\nRe-download PitWall, or contact Jordan for a fresh build.")
         sys.exit(1)
 
     cloud = cloud_mod.Cloud()
     if not cloud.configured:
-        print("LOCAL DEV MODE — no auth/paywall (set SUPABASE_URL to enable).")
+        print("LOCAL DEV MODE — no auth/paywall (set PITWALL_API_URL to enable).")
     elif cloud.entitled:
         who = f" ({cloud.email})" if cloud.email else ""
         print(f"License OK{who} — verifying with the server in the background.")
@@ -827,10 +1019,24 @@ def main() -> None:
             except Exception:
                 pass
 
-    announcer = make_announcer(not args.no_tts, args.tts_engine, args.voice, args.rate)
-    engineer = Engineer(announcer, dash, cloud)
+    announcer = make_announcer(not args.no_tts, args.tts_engine, args.voice,
+                               args.rate, kokoro_voice=args.engineer_voice,
+                               radio_fx=not args.clean_voice,
+                               device=args.audio_device)
+    engineer = Engineer(announcer, dash, cloud, driver_name=args.driver_name,
+                        ai=ai_mod.EngineerAI())
+    # Flags and environment set the starting point; what the driver saved
+    # on the dashboard wins.
+    engineer.apply_settings(settings_mod.load({
+        "driverName": args.driver_name or "", "voice": args.engineer_voice,
+        "radioFx": not args.clean_voice, "audioDevice": args.audio_device or "",
+    }), save=False)
     if dash:
         dash.on_recap = engineer.speak_recap
+        dash.on_ask = engineer.ask
+        dash.on_settings = engineer.apply_settings
+        dash.settings_view = engineer.settings_view
+        dash.on_radio_test = engineer.radio_test
     handler_errors = 0
     try:
         while True:

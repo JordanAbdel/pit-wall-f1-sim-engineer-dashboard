@@ -21,8 +21,10 @@ analysis.py, corner findings from trace.py, live context from state.py.
 import random
 
 import config
+import persona
 import trace
 from analysis import LapResult, SectorResult
+from persona import styled
 
 SECTOR_ORDINALS = {1: "first", 2: "second", 3: "final"}
 BIG_MOMENT_MS = 5000     # loss so large it's an off, not a delta worth reciting
@@ -33,6 +35,17 @@ REF_MAX_TALK_MS = 10_000  # a reference gap beyond this isn't actionable — ski
 
 _COUNT_WORDS = {2: "two", 3: "three", 4: "four", 5: "five",
                 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+
+# Tyre order in every F1 UDP format: rear left, rear right, front left,
+# front right.
+CORNER_NAMES = ("rear left", "rear right", "front left", "front right")
+TYRE_WEAR_CALLS = (50, 70)   # % worn on the worst corner — call each once
+TREND_MIN_MS = 200           # quicker than the previous lap by this = say so
+
+# Game weather codes: 0 clear, 1 light cloud, 2 overcast, 3 light rain,
+# 4 heavy rain, 5 storm.
+WEATHER_WORDS = {0: "clear", 1: "light cloud", 2: "overcast",
+                 3: "light rain", 4: "heavy rain", 5: "a storm"}
 
 
 def _delta_phrase(delta_ms: int) -> str:
@@ -89,6 +102,10 @@ class RaceEngineer:
         self._fuel_thresholds = [3.0, 1.5]
         self.race_mode = False   # set from the Session packet (race vs. hotlap)
         self.quali_mode = False  # qualifying: minimal interruptions
+        self.total_laps = None   # race distance, from the Session packet
+        self._best_streak = 0    # consecutive laps that were each a new best
+        self._prev_lap_ms = None  # the lap before this one, for trend calls
+        self._wear_called = set()
 
     def _pick(self, key: str, options: list) -> str:
         """Never repeat the previous phrasing for the same situation."""
@@ -99,14 +116,16 @@ class RaceEngineer:
         return choice
 
     # ---- flag calls: fixed, instant, safety radio stays short ----
+    # The big ones are said twice, the way engineers do: a call clipped by
+    # a radio drop-out or engine noise still gets through on the repeat.
     FLAG_CALLS = {
-        "yellow": "Yellow flag ahead — take care.",
+        "yellow": "Yellow flag, yellow flag ahead — take care.",
         "clear": "Track's clear again, green flag.",
         "red": "Red flag, red flag — session's stopped.",
-        "sc": "Safety car's out.",
-        "vsc": "Virtual safety car — hold your delta.",
+        "sc": "Safety car, safety car. The safety car is out.",
+        "vsc": "Virtual safety car, virtual safety car — hold your delta.",
         "sc_in": "Safety car's coming in this lap.",
-        "green": "Green flag — race on.",
+        "green": "Green, green, green — race on.",
         "blue": "Blue flag — car behind is on a fast lap, let him through.",
         "chequered": "That's the chequered flag.",
         "drive_through": "That's a drive-through penalty for you.",
@@ -115,21 +134,27 @@ class RaceEngineer:
 
     def flag_line(self, kind: str, seconds: int | None = None) -> str | None:
         if kind == "time_penalty" and seconds:
-            return f"You've picked up a {seconds} second time penalty."
-        return self.FLAG_CALLS.get(kind)
+            return styled(f"You've picked up a {seconds} second time penalty.",
+                          "urgent", "flag")
+        return styled(self.FLAG_CALLS.get(kind), "urgent", "flag")
 
     # ---- radio calls ----
-    def radio_check(self) -> str:
-        return self._pick("radio", [
-            "Radio check — I can see the car. Telemetry's coming through.",
-            "Radio check. I've got your data, we're live.",
-        ])
+    def radio_check(self, hour: int | None = None) -> str:
+        when = persona.part_of_day(hour)
+        return styled(self._pick("radio", [
+            f"Good {when}. Radio check — I can see the car, telemetry's "
+            f"coming through.",
+            f"Radio check. Good {when} — I've got your data, we're live.",
+            f"Good {when}. Radio check — loud and clear this end, and I've "
+            f"got the car on my screens. Let's get to work.",
+        ]), "warm", "greet")
 
     def new_session(self) -> str:
-        return self._pick("new_session", [
+        return styled(self._pick("new_session", [
             "New session — I've reset all the times.",
             "Fresh session, starting the times over.",
-        ])
+            "Okay, new session. Clean sheet — times are reset.",
+        ]), None, "info")
 
     # ---- corner detail: what happened and what to do about it ----
     def _corner_words(self, finding, track_id) -> str:
@@ -218,12 +243,14 @@ class RaceEngineer:
 
         # An off is always relative to your own pace.
         if r.delta_ms is not None and r.delta_ms >= BIG_MOMENT_MS:
-            return self._pick("off", [
+            return styled(self._pick("off", [
                 f"Big moment in the {ordinal} sector — that lap's gone. "
                 f"Reset and go again.",
                 f"That was an off in the {ordinal} sector. Lap's done — "
                 f"focus on the next one.",
-            ])
+                f"You okay? That was a big one in the {ordinal} sector. "
+                f"Lap's gone — take a breath and go again.",
+            ]), "warm", "off")
 
         if r.is_best and r.delta_ms is not None:
             lead = f"That's your best {ordinal} sector so far"
@@ -300,8 +327,41 @@ class RaceEngineer:
     def lap_line(self, s3: SectorResult, lap: LapResult, session=None,
                  gains=None, theoretical_ms=None, track_id=None,
                  ref_delta_ms=None, ref_label=None) -> str:
+        """The call as the car crosses the line. Remembers the lap before,
+        so a streak of bests or a lap that bounced back gets noticed."""
+        prev_ms, self._prev_lap_ms = self._prev_lap_ms, (
+            None if lap.invalid else lap.lap_time_ms)
+        if lap.is_best and lap.delta_ms is not None and not lap.invalid:
+            self._best_streak += 1
+        else:
+            self._best_streak = 0
         if self.race_mode:
-            return self._race_lap_line(lap, session)
+            line = self._race_lap_line(lap, session)
+            if (self.total_laps and lap.lap_num + 1 == self.total_laps):
+                line += " " + self._pick("last_lap", [
+                    "Last lap now — bring it home.",
+                    "Final lap. Nice and clean, bring it home.",
+                ])
+            return styled(line, "excited" if self._best_streak else None,
+                          "best" if self._best_streak else None)
+        line = self._hotlap_line(s3, lap, session, gains, theoretical_ms,
+                                 track_id, ref_delta_ms, ref_label)
+        if self._best_streak:
+            return styled(line, "excited", "best")
+        if (prev_ms is not None and not lap.invalid and lap.delta_ms is not None
+                and prev_ms - lap.lap_time_ms >= TREND_MIN_MS
+                and len(line) < 60):  # keep calls short
+            line += " " + self._pick("trend", [
+                "Better than last time round, though.",
+                "That's coming back — quicker than the last one.",
+                f"{_delta_phrase(prev_ms - lap.lap_time_ms).capitalize()} "
+                f"up on the lap before.",
+            ])
+        return line
+
+    def _hotlap_line(self, s3: SectorResult, lap: LapResult, session,
+                     gains, theoretical_ms, track_id,
+                     ref_delta_ms, ref_label) -> str:
         use_ref = (ref_delta_ms is not None and ref_label
                    and abs(ref_delta_ms) < REF_MAX_TALK_MS)
 
@@ -337,7 +397,25 @@ class RaceEngineer:
                            f"I'll coach you off this one.")
         elif lap.is_best:
             explanation = self._gain_words(gains, track_id) if gains else None
-            verdict = f"New best lap — a {tw}."
+            streak = self._best_streak
+            if streak >= 3:
+                verdict = self._pick("best3", [
+                    f"New best lap — a {tw}. That's {_COUNT_WORDS.get(streak, streak)} "
+                    f"in a row, you're flying.",
+                    f"New best lap again — a {tw}. {_COUNT_WORDS.get(streak, streak).capitalize()} "
+                    f"on the bounce. Mega.",
+                ])
+            elif streak == 2:
+                verdict = self._pick("best2", [
+                    f"New best lap — a {tw}. Another step.",
+                    f"New best lap — a {tw}. Back-to-back bests, keep it coming.",
+                ])
+            else:
+                verdict = self._pick("best1", [
+                    f"New best lap — a {tw}.",
+                    f"Good lap. New best lap — a {tw}.",
+                    f"New best lap — a {tw}. Nice.",
+                ])
             if explanation:
                 verdict += f" {explanation}"
                 s3_part = None  # the explanation is the story
@@ -363,13 +441,20 @@ class RaceEngineer:
                 verdict = (f"That's a {tw} — {_delta_phrase(ref_delta_ms)} "
                            f"quicker than {ref_label}. Keep doing that.")
         elif lap.delta_ms < config.CALLOUT_MIN_DELTA_MS:
-            verdict = f"{twc} — level with your best."
+            verdict = self._pick("level", [
+                f"{twc} — level with your best.",
+                f"{twc}. Right on your best — nice and consistent.",
+            ])
         elif s3_part is None and lap.worst_sector:
             verdict = (f"That's a {tw} — {_delta_phrase(lap.delta_ms)} "
                        f"slower, most of it in the "
                        f"{SECTOR_ORDINALS[lap.worst_sector]} sector.")
         else:
-            verdict = f"That's a {tw} — {_delta_phrase(lap.delta_ms)} off your best."
+            gap = _delta_phrase(lap.delta_ms)
+            verdict = self._pick("off_best", [
+                f"That's a {tw} — {gap} off your best.",
+                f"{twc}. {gap.capitalize()} off your best.",
+            ])
 
         if s3_part:
             return f"{s3_part} {verdict}"
@@ -407,7 +492,8 @@ class RaceEngineer:
     def recap_words(self, r: dict | None, recurring=None, track_id=None,
                     prev_best_ms=None, weak_zones=None) -> str:
         if r is None or r["laps"] == 0:
-            return "Nothing on the board yet — get a lap in and I'll break it down."
+            return styled("Nothing on the board yet — get a lap in and I'll "
+                          "break it down.", "calm", "answer")
         parts = [f"Right — {r['laps']} laps on the board.",
                  f"Your best was a {_lap_time_words(r['best_lap_ms'])}."]
         remaining = r["best_lap_ms"] - r["theoretical_ms"]
@@ -465,7 +551,7 @@ class RaceEngineer:
             elif diff >= config.CALLOUT_MIN_DELTA_MS:
                 parts.append(f"You're still {_delta_phrase(diff)} off your "
                              f"last session here.")
-        return " ".join(parts)
+        return styled(" ".join(parts), "calm", "recap")
 
     def track_history_line(self, best_ms: int) -> str:
         return (f"Last time you were here, your best was a "
@@ -489,3 +575,208 @@ class RaceEngineer:
             self._fuel_thresholds.pop(0)
             return f"You've got about {fuel:.1f} laps of fuel left."
         return None
+
+    # ---- things a real engineer volunteers ----
+    def tyre_wear_line(self, wear_corners) -> str | None:
+        """Once per threshold per set of tyres: the worst corner by name."""
+        if not wear_corners or len(wear_corners) != 4:
+            return None
+        worst = max(range(4), key=lambda i: wear_corners[i])
+        pct = wear_corners[worst]
+        due = [t for t in TYRE_WEAR_CALLS if pct >= t and t not in self._wear_called]
+        if not due:
+            return None
+        self._wear_called.update(due)
+        corner = CORNER_NAMES[worst]
+        if max(due) >= TYRE_WEAR_CALLS[-1]:
+            return styled(self._pick("wear_high", [
+                f"The {corner} is at {round(pct)} percent wear now. Look after "
+                f"it — it's going to start falling away.",
+                f"{corner.capitalize()}'s {round(pct)} percent worn. Manage it "
+                f"through the long corners.",
+            ]), None, "info")
+        return styled(self._pick("wear_mid", [
+            f"Tyres are past half-way — the {corner} is at {round(pct)} percent.",
+            f"Heads up, {corner} is the one going first. {round(pct)} percent.",
+        ]), None, "info")
+
+    def new_tyres_line(self, compound: str | None) -> str:
+        """Wear dropped back to nothing: a fresh set went on."""
+        self._wear_called.clear()
+        what = f"{compound.lower()}s" if compound else "tyres"
+        return styled(self._pick("new_tyres", [
+            f"Fresh {what} on. Bring them in gently, then let's go.",
+            f"New {what}. Give them a lap to come in.",
+        ]), "warm", None)
+
+    def weather_line(self, old: int, new: int) -> str | None:
+        """Weather moved between dry and wet, or the rain got heavier."""
+        wet_old, wet_new = old >= 3, new >= 3
+        word = WEATHER_WORDS.get(new)
+        if word is None:
+            return None
+        if wet_new and not wet_old:
+            return styled(f"Rain's arrived — {word}. Careful on the kerbs and "
+                          f"the white lines.", None, "info")
+        if wet_old and not wet_new:
+            return styled("Rain's stopped. A dry line will start to come.",
+                          None, "info")
+        if wet_new and new > old:
+            return styled(f"It's getting heavier — {word} now. Take it easy.",
+                          None, "info")
+        return None
+
+    def finish_line(self, position: int | None, race: bool) -> str:
+        """After the chequered flag — the moment the engineer sounds human."""
+        if race and position == 1:
+            return styled(self._pick("win", [
+                "P1! Get in there! What a job. Bring it home.",
+                "That's the win! P1. Brilliant drive.",
+            ]), "excited", "finish")
+        if race and position and position <= 3:
+            return styled(f"P{position} — that's a podium. Good job.",
+                          "excited", "finish")
+        if race and position:
+            return styled(self._pick("finish", [
+                f"P{position} at the flag. Good work today.",
+                f"That's P{position}. Solid race — cool-down lap now.",
+            ]), "warm", "finish")
+        return styled("Good session. Bring it back in.", "warm", "finish")
+
+    # ---- the driver talks back ----
+    INTENTS = (
+        ("radio", ("radio check", "hear me", "can you hear", "testing")),
+        ("thanks", ("thanks", "thank you", "cheers", "nice one")),
+        # Before "position": "where am I losing time" is not "where am I".
+        ("where", ("losing time", "losing the time", "doing wrong", "improve",
+                   "where's the time", "where is the time", "weak", "slow",
+                   "what should i work on", "faster")),
+        ("gap", ("gap", "ahead", "in front", "car in front", "behind")),
+        ("position", ("position", "where am i", "what position", "p what")),
+        ("tyres", ("tyre", "tire", "wear", "rubber", "grip")),
+        ("fuel", ("fuel", "petrol", "lift and coast")),
+        ("laps_left", ("laps left", "how many laps", "laps to go", "remaining")),
+        ("weather", ("weather", "rain", "wet", "dry", "temperature", "temp")),
+        ("pace", ("pace", "how am i doing", "lap time", "best lap", "my best",
+                  "last lap", "how was that", "delta")),
+    )
+
+    def intent(self, question: str) -> str | None:
+        q = " " + " ".join(question.lower().replace("?", " ").split()) + " "
+        for name, keys in self.INTENTS:
+            if any(k in q for k in keys):
+                return name
+        return None
+
+    def answer(self, question: str, ctx: dict) -> str:
+        """Reply to the driver over the radio — from the data, never made
+        up. ctx is a snapshot the engineer assembles (see main.py)."""
+        what = self.intent(question)
+        if what is None:
+            return styled(self._pick("unclear", [
+                "Say again? I didn't catch that.",
+                "Sorry, say again — you broke up a bit.",
+            ]), None, "answer")
+        return styled(getattr(self, f"_answer_{what}")(ctx), None, "answer")
+
+    def _answer_radio(self, ctx) -> str:
+        return self._pick("ans_radio", ["Loud and clear.", "Yep, got you loud and clear.",
+                                        "Reading you five by five."])
+
+    def _answer_thanks(self, ctx) -> str:
+        return self._pick("ans_thanks", ["No worries.", "Anytime. Keep it going.",
+                                         "Copy."])
+
+    def _answer_gap(self, ctx) -> str:
+        gap, pos = ctx.get("gap_ahead_ms"), ctx.get("position")
+        if not ctx.get("race"):
+            return "No one to race in this session — it's just you and the clock."
+        if pos == 1:
+            return "You're leading — nobody ahead of you."
+        if gap:
+            return f"The gap to the car ahead is {_delta_phrase(gap)}."
+        return "I haven't got a gap to the car ahead yet."
+
+    def _answer_position(self, ctx) -> str:
+        pos = ctx.get("position")
+        if not pos:
+            return "I haven't got a position for you yet."
+        total = ctx.get("total_laps")
+        lap = ctx.get("lap")
+        if ctx.get("race") and total and lap:
+            return f"You're P{pos}, lap {lap} of {total}."
+        return f"You're P{pos}."
+
+    def _answer_tyres(self, ctx) -> str:
+        wear, age, comp = ctx.get("wear_corners"), ctx.get("tyre_age"), ctx.get("compound")
+        bits = []
+        if comp:
+            what = f"{comp.lower()}s"
+            bits.append(f"You're on {what}" + (f", {age} laps old" if age else "") + ".")
+        if wear and len(wear) == 4:
+            worst = max(range(4), key=lambda i: wear[i])
+            avg = sum(wear) / 4
+            if wear[worst] < 15:
+                bits.append("They're in good shape — hardly any wear.")
+            else:
+                bits.append(f"Average wear's {round(avg)} percent, the "
+                            f"{CORNER_NAMES[worst]} is worst at {round(wear[worst])}.")
+        return " ".join(bits) or "I'm not getting tyre data yet."
+
+    def _answer_fuel(self, ctx) -> str:
+        laps = ctx.get("fuel_laps")
+        if laps is None:
+            return "I'm not getting fuel data yet."
+        if laps >= 0.5:
+            return f"Fuel's fine — you're about {laps:.1f} laps to the good."
+        if laps > -0.5:
+            return "Fuel's right on target. No need to save."
+        return (f"We're about {abs(laps):.1f} laps short on fuel. Lift and coast "
+                f"into the big stops.")
+
+    def _answer_laps_left(self, ctx) -> str:
+        total, lap = ctx.get("total_laps"), ctx.get("lap")
+        if not (ctx.get("race") and total and lap):
+            return "No race distance in this session — run as long as you like."
+        left = total - lap
+        if left <= 0:
+            return "This is the last lap."
+        return f"{left} laps to go after this one." if left > 1 else "One more after this."
+
+    def _answer_weather(self, ctx) -> str:
+        word = WEATHER_WORDS.get(ctx.get("weather"))
+        tt, at = ctx.get("track_temp"), ctx.get("air_temp")
+        if word is None:
+            return "I haven't got the weather yet."
+        temps = (f" Track's {tt} degrees, air {at}." if tt is not None and at is not None
+                 else "")
+        return f"It's {word}.{temps}"
+
+    def _answer_where(self, ctx) -> str:
+        top = ctx.get("top_issue")
+        if top:
+            onset_m, cause, avg, laps = top
+            name = trace.turn_name(ctx.get("track_id"), onset_m)
+            fix = self.SHORT_ADVICE.get(cause, "tidy it up")
+            how = {"braked_early": f", braking about {avg} metres early",
+                   "overslowed": f", about {avg} kph down at the apex"}.get(cause, "")
+            return (f"The big one is {name} — it's cost you on {laps} "
+                    f"laps{how}. {fix.capitalize()}.")
+        weak = ctx.get("weakest_sector")
+        if weak and ctx.get("weakest_gap_ms", 0) >= config.CALLOUT_MIN_DELTA_MS:
+            return (f"Most of it's in the {SECTOR_ORDINALS[weak]} sector — about "
+                    f"{_delta_phrase(ctx['weakest_gap_ms'])} a lap. Nothing's "
+                    f"repeating at one corner yet.")
+        return "Nothing standing out yet. Give me a few more laps."
+
+    def _answer_pace(self, ctx) -> str:
+        best, last = ctx.get("best_ms"), ctx.get("last_ms")
+        if not best:
+            return "No laps on the board yet."
+        out = f"Your best is a {_lap_time_words(best)}."
+        if last and last != best:
+            out += f" Last lap was {_delta_phrase(last - best)} off that."
+        theo = ctx.get("theoretical_ms")
+        if theo and best - theo >= config.CALLOUT_MIN_DELTA_MS:
+            out += f" There's a {_lap_time_words(theo)} in it if you put it together."
+        return out

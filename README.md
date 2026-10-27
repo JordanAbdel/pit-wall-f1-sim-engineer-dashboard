@@ -99,6 +99,15 @@ In F1 25: **Settings → Telemetry Settings**
 | UDP Send Rate | 20 Hz is plenty |
 | UDP Format | **2025** |
 
+**Older games work too** — F1 22 (and F1 2020, 2021, 23, 24). In F1 22
+it's **Game Options → Settings → Telemetry Settings**, with *UDP Format*
+set to **2022**. PitWall detects the format from the first packet. F1 22
+has no Time Trial rival packet, so rival comparisons are F1 24/25 only;
+everything else (calls, flags, tyre wear, maps, debrief) works the same.
+Where F1 22 drives an older layout (Singapore, the Catalunya chicane, Abu
+Dhabi in F1 2020) the engineer uses that layout's turn numbers, and the
+map draws itself from your first clean lap.
+
 Mac and Xbox must be on the same Wi-Fi/network. If your Mac's IP
 changes (new network, router reboot), update the Xbox setting to match.
 
@@ -118,6 +127,31 @@ changes (new network, router reboot), update the Xbox setting to match.
   tyre age, low fuel, best top speed, a radio check when telemetry
   connects, and a *"Big moment in the second sector — that lap's
   gone"* call instead of tenths when you've been through the gravel.
+- **He sounds like he's on the radio**: every call goes through a
+  team-radio chain (`radio.py`). It's narrow-band like a real radio
+  link, hard-compressed, with a little grit, an open-mic hiss, and a
+  click and burst of static as the button goes down and up. A long call
+  streamed sentence by sentence is still one transmission. Safety calls
+  are doubled the way engineers do it (*"Safety car, safety car"*) and
+  delivered faster; a new best is lifted; the debrief is measured.
+  Turn it off with `--clean-voice` or in the dashboard's **Engineer**
+  settings.
+- **He feels like a person**: greets you by time of day, uses your name
+  now and then (never every call), puts an *"Okay,"* in front of some
+  calls, notices streaks (*"three in a row, you're flying"*) and a lap
+  that bounced back, asks if you're okay after an off, tells you when
+  tyres pass half-way, when fresh ones go on, and when rain arrives,
+  calls the last lap of a race, and celebrates the flag.
+- **You can talk back**: under the radio log, tap **Gap**, **Tyres**,
+  **Fuel**, **Pace** or **Where's the time?** (on a paired phone too),
+  or click **Talk** / hold **T** on the computer and just ask. He
+  answers from the live data, never inventing it. With
+  `ANTHROPIC_API_KEY` set (in `.env` or the environment) he can also
+  answer questions he has no script for, through Claude (`ai.py`).
+- **Xbox with a headset**: the engineer can play into any output
+  device (dashboard → **Engineer**, or `--audio-device`). Bridge it into
+  a Discord voice channel and join that from the Xbox, and he's in your
+  headset over the game. Full guide: [docs/XBOX_AUDIO.md](docs/XBOX_AUDIO.md).
 - **Online reference times**: in **Time Trial** the coaching compares
   you against your **rival ghost** — the only online times the game
   broadcasts — with live sector-by-sector deltas (*"two tenths off the
@@ -139,16 +173,22 @@ changes (new network, router reboot), update the Xbox setting to match.
   track is one data entry in `dashboard.html`'s `TRACK_MAPS`). Your
   session's **weak turns are highlighted on the map** — a pulsing red
   ring on the biggest problem, amber on the rest, with a severity list
-  under the map. During a live session a **red dot shows your car's
-  position** on the circuit in real time.
-- **View modes**: tabs at the top switch between **DASHBOARD** (full
-  panels) and **TRACK MAP** (fullscreen map with weak turns + live car
-  position — made for a second monitor). The choice is remembered per
-  browser.
-- **Recap button**: top-right of the dashboard. Opens a session
-  breakdown (best lap, theoretical best, weakest/strongest sector,
-  session trend, recurring mistake, **worst turns**, consistency) and
-  the engineer speaks the same debrief — including the turn-weakness
+  under the map. During a live session an **orange dot shows your car's
+  position** on the circuit in real time, and after two full laps the
+  circuit is **coloured by where the last lap gained or lost** against
+  your reference lap.
+- **Views**: **Live**, **Telemetry**, **Track** and **Debrief** tabs
+  across the top (keys `1`–`4`; `?` lists every shortcut). The choice is
+  remembered per browser. Track is made for a second monitor.
+- **Telemetry**: the last full lap traced against your reference lap
+  by distance: speed, a cumulative time-delta line, throttle and brake.
+  Hover anywhere for exact values and the spot on the map. **Where the
+  time went** ranks the stretches of track that cost (or gained) the most.
+- **Debrief**: session summary (best lap, theoretical best, consistency,
+  trend, time lost per sector, recurring mistake, **worst turns**,
+  driving style), every lap plotted, and the full timing sheet.
+  **Copy summary** and **Export laps (CSV)** take it elsewhere. **Read it
+  out** (or `R`) has the engineer speak the same debrief — including the turn-weakness
   breakdown: *"Biggest losses: turn ten, braking early; turn five,
   apex speed; turn one, slow exit. Practice focus: brake later at turn
   ten — 5 laps, about 20 metres."*
@@ -200,13 +240,18 @@ changes (new network, router reboot), update the Xbox setting to match.
   against the best lap driven while the app was listening). Named turns
   are per-track lookup tables in `trace.py` (Spa included); other
   tracks get *"the braking zone 2.1 k in"* until their table is added.
-- **Dashboard** (http://127.0.0.1:8777): live lap clock, three sector
-  boxes (live time ticking, then locked with a delta once complete),
-  best lap, theoretical best, tyre compound/wear, fuel, lap-to-lap
-  consistency, full lap history, and a pace-trend chart.
+- **Dashboard** (http://127.0.0.1:8777): the **live delta** is the
+  biggest number on screen. It's measured against your reference lap at
+  the same point on track, not just at sector lines. Around it: projected lap, a
+  lap ribbon showing sector progress and pace colours, live inputs
+  (gear, speed, throttle/brake, RPM, ERS, DRS) with a speed trace drawn
+  over the reference lap as you drive, per-corner tyre wear, fuel, a
+  **radio transcript** of every engineer call, the timing sheet and a
+  pace chart with the stint trend. Yellow flags and safety cars show as
+  a banner across the top.
 - **Phone / tablet**: click **PHONE** (or start with `--lan`), then open
   the address it shows on a device on the same Wi-Fi and enter the
-  6-digit code. Paired devices get a view-only dashboard (plus RECAP)
+  6-digit code. Paired devices get a view-only dashboard (plus Read it out)
   on port 8778, laid out for phone and tablet screens. Login and billing
   stay on the computer. **UNPAIR ALL** signs every device out.
 
@@ -230,6 +275,12 @@ python3 main.py --raw            # Phase 1 check: just log raw packets, no parsi
 python3 main.py --no-tts         # dashboard + terminal, no spoken coaching
 python3 main.py --no-dashboard   # voice + terminal, skip the web dashboard
 python3 main.py --tts-engine say # force the built-in voice (skip neural TTS)
+python3 main.py --driver-name Jordan          # what the engineer calls you
+python3 main.py --engineer-voice bm_george    # bm_lewis / bm_george / bm_daniel / bm_fable
+python3 main.py --clean-voice                 # no team-radio sound
+python3 main.py --list-audio-devices          # outputs you can send him to
+python3 main.py --audio-device "BlackHole 2ch"  # e.g. the Xbox/Discord bridge
+python3 scripts/radio_demo.py demo.wav --compare  # hear him without driving
 python3 main.py -v               # verbose/debug logging
 python3 main.py --port 20778 --dashboard-port 8778   # run on different ports
 ```
@@ -254,8 +305,13 @@ main.py        UDP socket + dispatch loop, console output
 packets.py     F1 25 (format 2025) struct parsing, size validation
 state.py       packet stream -> sector/lap completion events
 analysis.py    events -> deltas vs. session bests + stint pace, debrief stats
-brain.py       persona: results -> pit-wall radio lines
-speak.py       text-to-speech (bundled Kokoro neural voice, `say` fallback)
+brain.py       what the engineer says: results -> radio lines, answers
+persona.py     how he says it: name, openers, delivery style per call
+radio.py       team-radio sound: band-pass, compression, static, squelch
+speak.py       text-to-speech (bundled Kokoro neural voice, `say` fallback),
+               output device selection
+ai.py          optional Claude answers to unscripted radio questions
+settings.py    the driver's engineer settings (settings.json)
 trace.py       distance-indexed lap traces, zone comparison, turn names
 memory.py      per-corner memory: streaks, fixes, recurring mistakes, style
 driver_db.py   long-term session database (driver_db.json)

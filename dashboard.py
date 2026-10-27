@@ -22,6 +22,7 @@ log = logging.getLogger("dashboard")
 HTML_PATH = config.BUNDLE_DIR / "dashboard.html"
 LIVE_TIMEOUT_S = 2.0
 MAX_BODY_BYTES = 16 * 1024
+RADIO_KEEP = 40  # spoken lines kept for the dashboard's radio log
 
 # The page loads no third-party script (login and billing go through this
 # process), so it can pin scripts and requests to its own origin.
@@ -51,7 +52,7 @@ class Dashboard:
         self._lock = threading.Lock()
         self._last_packet = 0.0
         self._data = {
-            "sessionLabel": "F1 25",
+            "sessionLabel": None,
             "lapNo": None,
             "currentLapMs": 0,
             "currentSector": 0,
@@ -63,6 +64,27 @@ class Dashboard:
             "wearPct": None,
             "fuelKg": None,
             "fuelLaps": None,
+            "wearCorners": None,   # per-corner wear % (RL, RR, FL, FR)
+            "speedKph": None,      # live inputs, from Car Telemetry
+            "gear": None,
+            "throttle": 0.0,
+            "brake": 0.0,
+            "rpm": None,
+            "maxRpm": None,
+            "drs": False,
+            "ersPct": None,        # battery charge, % of the 4 MJ store
+            "ersMode": None,       # 0 none · 1 medium · 2 hotlap · 3 overtake
+            "weather": None,       # 0 clear · 1 light cloud · 2 overcast
+                                   # · 3 light rain · 4 heavy rain · 5 storm
+            "trackTemp": None,
+            "airTemp": None,
+            "totalLaps": None,
+            "raceMode": False,
+            "timeLeftS": None,
+            "yellowFlag": False,
+            "safetyCar": 0,        # 0 none · 1 full · 2 virtual · 3 formation
+            "radio": [],           # [{"id", "t" (epoch ms), "text", "priority"}]
+            "tracesVersion": 0,    # bumps when /traces.json has new laps
             "paused": False,
             "signalFormat": None,  # UDP format of the last packet (e.g. 2024)
             "signalGame": None,    # "F1 24", or None if unsupported
@@ -79,8 +101,14 @@ class Dashboard:
             "reference": {"source": "self", "lapMs": None, "sectors": None,
                           "goalMs": None},
         }
+        self._traces = {"last": None, "best": None, "bestLabel": "best"}
+        self._radio_seq = 0
         self._server = None
         self.on_recap = None  # set by the engineer; called from HTTP threads
+        self.on_ask = None    # driver's radio question -> the engineer's answer
+        self.on_settings = None    # engineer settings saved on this computer
+        self.settings_view = None  # -> current settings + choices
+        self.on_radio_test = None
         self.cloud = None     # set by main; auth/entitlement backend
         self.lan = lan.LanAccess()
         self._lan_server = None
@@ -112,6 +140,28 @@ class Dashboard:
             else:
                 laps.append(entry)
 
+    def radio(self, text: str, priority: bool = False, who: str = "engineer") -> None:
+        """A line on the radio — shown as a transcript, which also helps
+        anyone who can't hear the voice over the game. who="driver" is a
+        question the driver asked."""
+        with self._lock:
+            self._radio_seq += 1
+            lines = self._data["radio"] = self._data["radio"][-(RADIO_KEEP - 1):]
+            lines.append({"id": self._radio_seq, "t": int(time.time() * 1000),
+                         "text": str(text), "priority": priority, "who": who})
+
+    def set_traces(self, last: dict | None, best: dict | None,
+                   best_label: str = "best") -> None:
+        """Distance-indexed traces of the last full lap and the lap it's
+        compared against (see trace.LapTrace.compact)."""
+        with self._lock:
+            self._traces = {"last": last, "best": best, "bestLabel": best_label}
+            self._data["tracesVersion"] += 1
+
+    def traces(self) -> dict:
+        with self._lock:
+            return {"version": self._data["tracesVersion"], **self._traces}
+
     def set_laps(self, laps: list) -> None:
         with self._lock:
             self._data["laps"] = laps
@@ -124,6 +174,7 @@ class Dashboard:
         with self._lock:
             snap = dict(self._data)
             snap["laps"] = list(self._data["laps"])
+            snap["radio"] = list(self._data["radio"])
             snap["live"] = (time.time() - self._last_packet < LIVE_TIMEOUT_S
                             and not self._data["paused"])
             snap["hasSignal"] = time.time() - self._last_packet < LIVE_TIMEOUT_S
@@ -265,6 +316,8 @@ class Dashboard:
                                    HTML_PATH.read_bytes(), {"Content-Security-Policy": CSP})
                     elif path == "/state.json":
                         self._json(dashboard.snapshot())
+                    elif path == "/traces.json":
+                        self._json(dashboard.traces())
                     elif path == "/config.json":
                         self._json({"lanIp": _lan_ip, "udpPort": config.PORT,
                                     "remote": not local})
@@ -278,6 +331,8 @@ class Dashboard:
                         self._json(state)
                     elif path == "/lan" and local:
                         self._json(dashboard.lan_state())
+                    elif path == "/settings" and local and dashboard.settings_view:
+                        self._json(dashboard.settings_view())
                     else:
                         self._send(404, "text/plain", b"not found")
 
@@ -295,6 +350,20 @@ class Dashboard:
                         return
                     if not self._paired():
                         return self._reject()
+                    if path == "/ask":
+                        body = self._json_body() or {}
+                        q = body.get("q")
+                        if not isinstance(q, str) or not q.strip():
+                            self._json({"ok": False}, 400)
+                            return
+                        answer = ""
+                        if dashboard.on_ask is not None:
+                            try:
+                                answer = dashboard.on_ask(q[:200])
+                            except Exception:
+                                log.exception("radio question failed")
+                        self._json({"ok": True, "answer": answer})
+                        return
                     if path == "/recap":
                         if dashboard.on_recap is not None:
                             try:
@@ -328,6 +397,15 @@ class Dashboard:
                     elif path == "/lan":
                         body = self._json_body() or {}
                         self._json(dashboard.set_lan(bool(body.get("enabled"))))
+                    elif path == "/settings" and dashboard.on_settings:
+                        body = self._json_body()
+                        if body is None:
+                            self._json({"ok": False}, 400)
+                            return
+                        self._json(dashboard.on_settings(body))
+                    elif path == "/radio-test" and dashboard.on_radio_test:
+                        dashboard.on_radio_test()
+                        self._send(204, "text/plain", b"")
                     elif path == "/lan/unpair":
                         dashboard.lan.unpair_all()
                         self._json(dashboard.lan_state())

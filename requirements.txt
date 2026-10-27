@@ -1,2 +1,7 @@
 kokoro-onnx
 numpy
+# Engineer audio to a chosen output device (Xbox/Discord bridge). Optional:
+# without it the voice plays on the default output.
+sounddevice
+# Optional: free-form radio questions via Claude (needs ANTHROPIC_API_KEY).
+# anthropic

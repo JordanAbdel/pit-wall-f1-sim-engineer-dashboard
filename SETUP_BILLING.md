@@ -1,146 +1,161 @@
-# Cloud setup — Supabase + Stripe (one-time, ~15 minutes)
+# Cloud setup — Cloudflare + Stripe (one-time, ~15 minutes)
 
-The app code is fully wired for accounts, billing, and cloud session
-storage. It activates the moment the keys below exist; until then it
-runs in LOCAL DEV MODE (no auth, no paywall — behaves like the
-original personal tool).
+The licence API is a Cloudflare Worker with a D1 database, in
+`cloudflare/`. It's free and, unlike Supabase's free tier, never pauses.
+It answers the same paths the old Supabase project did, so the app only
+needs its URL. Until `PITWALL_API_URL` is set the app runs in LOCAL DEV
+MODE (no auth, no paywall — the original personal tool).
 
-## 1. Supabase project (free tier)
+All commands run from `race-engineer/cloudflare/` unless noted. Node is
+the only prerequisite; `npm install` once fetches wrangler.
 
-1. https://supabase.com → New project (any name, e.g. `race-engineer`).
-2. SQL Editor → paste and run `supabase/schema.sql` from this folder.
-   **Existing project?** Run `supabase/migrations/20260929000000_billing_sync.sql`
-   instead (adds `stripe_subscription_id`, `current_period_end`,
-   `billing_synced_at`); or `supabase db push`.
-3. Authentication → Providers → Email: for easiest testing, turn OFF
-   "Confirm email" (otherwise signups must click an email link first).
-4. Project Settings → API: copy the **Project URL** and **anon public**
-   key.
+## 1. Cloudflare account and database
+
+1. Sign up at https://dash.cloudflare.com (free plan).
+2. Log wrangler in — it opens the browser to approve access:
+
+   ```sh
+   npx wrangler login
+   ```
+
+3. Create the database, and paste the `database_id` it prints into
+   `wrangler.toml` (replacing `REPLACE_WITH_ID_FROM_wrangler_d1_create`):
+
+   ```sh
+   npx wrangler d1 create pitwall
+   npm run db:init
+   ```
 
 ## 2. Stripe (test mode)
 
-1. https://stripe.com → create account, stay in **Test mode**.
-2. Products → Add product: "Race Engineer", recurring **$4.99/month**.
-   Copy the **price id** (`price_…`).
-3. Developers → API keys: copy the **Secret key** (`sk_test_…`).
-4. Settings → Billing → **Customer portal**: activate it (test mode),
-   allow **cancel subscriptions** with "at end of billing period", and
-   allow payment-method updates. This is where MANAGE SUBSCRIPTION sends
-   users.
+1. https://stripe.com → stay in **Test mode**.
+2. Products → Add product: "PitWall", recurring **$4.99/month**. Put the
+   **price id** (`price_…`) in `wrangler.toml` as `STRIPE_PRICE_ID`.
+3. Developers → API keys: you'll need the **Secret key** (`sk_test_…`)
+   in step 4.
+4. Settings → Billing → **Customer portal**: activate it, allow
+   **cancel subscriptions** ("at end of billing period") and
+   payment-method updates. MANAGE SUBSCRIPTION sends users here.
 
 ## 3. Licence signing keys (offline grace)
 
 The app caches a server-signed licence so it can start offline for up to
-7 days. Generate the key pair once (needs Deno, `brew install deno`):
+7 days. From `race-engineer/`:
 
 ```sh
-deno run scripts/gen_license_keys.ts
+node scripts/gen_license_keys.mjs
 ```
 
-It prints `LICENSE_SIGNING_KEY=…` (secret: it goes to Supabase below,
-never into git or the app) and `LICENSE_PUBLIC_KEY=…` (goes in `.env`
-and in the `LICENSE_PUBLIC_KEY` GitHub secret for the Windows build).
-Without the public key, builds still work but must reach the server
-to start.
+It prints `LICENSE_SIGNING_KEY=…` (secret — step 4, never into git or
+the app) and `LICENSE_PUBLIC_KEY=…` (goes in `.env`, step 6).
 
-## 4. Edge functions (checkout, portal, licence, webhook)
+## 4. Secrets
 
-Requires the Supabase CLI (`brew install supabase/tap/supabase`), then
-from this `race-engineer/` folder:
+Each command prompts for the value, so it never lands in your shell
+history or in this repo:
 
 ```sh
-supabase login
-supabase link --project-ref <your-project-ref>
-supabase secrets set STRIPE_SECRET_KEY=sk_test_... \
-                     STRIPE_PRICE_ID=price_... \
-                     APP_URL=http://127.0.0.1:8777 \
-                     LICENSE_SIGNING_KEY=<from step 3>
-# optional free trial: supabase secrets set TRIAL_DAYS=7
-supabase functions deploy create-checkout
-supabase functions deploy create-portal-session
-supabase functions deploy issue-license
-supabase functions deploy stripe-webhook --no-verify-jwt
+npx wrangler secret put STRIPE_SECRET_KEY      # sk_test_…
+npx wrangler secret put LICENSE_SIGNING_KEY    # from step 3
+npx wrangler secret put AUTH_SECRET            # any long random string:
+                                               #   openssl rand -base64 48
 ```
 
-Then in Stripe: Developers → Webhooks → Add endpoint:
-- URL: `https://<project-ref>.supabase.co/functions/v1/stripe-webhook`
-- Events: `checkout.session.completed`,
-  `customer.subscription.created`, `customer.subscription.updated`,
-  `customer.subscription.deleted`, `customer.subscription.paused`,
-  `customer.subscription.resumed`, `invoice.paid`,
-  `invoice.payment_failed`
-- Copy the **Signing secret** (`whsec_…`) and:
+Optional free trial: set `TRIAL_DAYS = "7"` in `wrangler.toml`.
+
+## 5. Deploy and connect the webhook
 
 ```sh
-supabase secrets set STRIPE_WEBHOOK_SECRET=whsec_...
+npm run deploy
 ```
 
-How billing stays correct:
-- **One customer, one subscription.** `create-checkout` creates one Stripe
-  customer per user and reuses it. It asks Stripe directly and refuses
-  (HTTP 409, "use MANAGE SUBSCRIPTION") while a subscription exists. It
-  hands back an already-open Checkout instead of starting a second one.
-- **Webhook order doesn't matter.** Each event only says which customer
-  changed. The webhook re-reads that customer's subscriptions from Stripe
-  and writes the current state, so late, repeated or out-of-order events
-  all converge. Database errors return 500, so Stripe retries (for up to
-  3 days).
-- The pure rules have tests: `deno test supabase/functions/_shared`.
+It prints the Worker's URL, e.g.
+`https://pitwall-api.<your-subdomain>.workers.dev`. Opening it shows
+`{"ok":true,"service":"pitwall-api"}`.
 
-## 5. App config
+In Stripe: Developers → Webhooks → Add endpoint:
+- URL: `https://pitwall-api.<your-subdomain>.workers.dev/functions/v1/stripe-webhook`
+- Events: `checkout.session.completed`, `customer.subscription.created`,
+  `customer.subscription.updated`, `customer.subscription.deleted`,
+  `customer.subscription.paused`, `customer.subscription.resumed`,
+  `invoice.paid`, `invoice.payment_failed`
+- Copy the **Signing secret** (`whsec_…`), then:
 
-Create `race-engineer/.env`:
+```sh
+npx wrangler secret put STRIPE_WEBHOOK_SECRET
+```
+
+## 6. App config
+
+`race-engineer/.env` (replace the old `SUPABASE_*` lines):
 
 ```
-SUPABASE_URL=https://<project-ref>.supabase.co
-SUPABASE_ANON_KEY=<anon public key>
+PITWALL_API_URL=https://pitwall-api.<your-subdomain>.workers.dev
 LICENSE_PUBLIC_KEY=<from step 3>
 ```
 
-Restart `main.py`. The dashboard now opens on the login screen; the
-engine stays silent until a logged-in, subscribed user is present.
+Quit PitWall and open it again. The dashboard opens on the sign-in
+screen; the engine stays silent until a signed-in, subscribed user is
+present.
 
-## 6. Verify end-to-end (Stripe test card)
+## 7. Verify (Stripe test card)
 
-1. Dashboard → SIGN UP with any email/password → LOG IN. Before paying,
-   start a session in the game: the box under the paywall should say
-   CONSOLE CONNECTED.
-2. SUBSCRIBE WITH STRIPE → test card `4242 4242 4242 4242`, any future
+1. Dashboard → SIGN UP → you're signed in straight away (no confirmation
+   email).
+2. SUBSCRIBE WITH STRIPE → card `4242 4242 4242 4242`, any future
    expiry, any CVC.
-3. Back in the dashboard: status flips to ACTIVE within seconds
-   (webhook), the gate drops, and the app works.
-4. Restart the app: still logged in (refresh token persisted in
-   `auth.json`), and the startup license check logs
-   `license check: active (<email>)`. `license.json` now holds a signed
-   token.
-5. SUBSCRIBE again from a second browser tab: refused with "use MANAGE
-   SUBSCRIPTION", and no second subscription appears in Stripe.
-6. MANAGE SUBSCRIPTION → cancel in the portal. It stays ACTIVE until
-   the period ends (Stripe keeps the subscription active until then).
-   To see the paywall now, cancel immediately in Stripe's dashboard and
-   press REFRESH STATUS (or restart).
+3. Back in the dashboard the status flips to ACTIVE within seconds.
+4. Restart the app: still signed in, and the log says
+   `license check: active (<email>)`.
+5. MANAGE SUBSCRIPTION → cancel; it stays ACTIVE until the period ends.
 
-## Notes
+`npx wrangler tail` streams the Worker's logs live (webhook outcomes,
+errors) while you test.
 
-- Everything is **Stripe test mode**. Going live = new live keys +
-  live webhook endpoint + Jordan's explicit go-ahead. Nothing else
-  changes.
-- **License model**: the subscription is checked once at startup. When
-  it's active (or `past_due` while Stripe retries the card), the app
-  fetches an Ed25519-signed licence from `issue-license` and caches it
-  in `license.json` (chmod 600). If the server is unreachable, the app
-  trusts the cache only if the signature verifies against
-  `LICENSE_PUBLIC_KEY`, and only for 7 days from issue
-  (`LICENSE_GRACE_DAYS` in cloud.py). A licence dated in the future
-  (clock wound back) is refused. Editing the file breaks the signature.
-  Entitlement never changes mid-session on a timer, only at startup and
-  on user auth actions.
-- **Login never touches the browser**: the dashboard posts
-  email/password to the local app, which calls Supabase Auth itself.
-  The page loads no third-party script, so login works without a CDN,
-  and its Content-Security-Policy blocks any other origin.
-- `auth.json` (local login token) is per-machine and chmod 600. Delete
-  it (and `license.json`) to force a fresh login.
+## Testing without any accounts
+
+From `race-engineer/`:
+
+```sh
+build-venv/bin/python cloudflare/test/e2e.py
+```
+
+Runs the Worker locally under `wrangler dev` with a fake Stripe and
+throwaway keys, then checks sign-up, sign-in, the lockout, token
+rotation, checkout, signed webhooks, cancellation and licences — and
+finally drives the app's own `cloud.Cloud` through sign-up → subscribe →
+relaunch. Nothing leaves the machine.
+
+## How it works
+
+- **Accounts**: email + password, hashed with PBKDF2-SHA256 (100k
+  rounds, per-user salt). Ten wrong passwords for one email lock it for
+  15 minutes. Unknown emails take as long as known ones, so the sign-in
+  form doesn't reveal who has an account.
+- **Tokens**: a signed access token lasting an hour, and a refresh token
+  (60 days) kept by the app in `auth.json`. Refresh tokens are stored
+  hashed and replaced on every use, so a copied, already-used one is
+  worthless.
+- **One customer, one subscription.** Checkout reuses the user's single
+  Stripe customer, asks Stripe directly and refuses (409, "use MANAGE
+  SUBSCRIPTION") while a subscription exists, and hands back an
+  already-open Checkout instead of a second one.
+- **Webhook order doesn't matter.** Each event only says which customer
+  changed; the Worker re-reads that customer's subscriptions from Stripe
+  and writes the current state. Signatures are checked, and events more
+  than 5 minutes old are refused. Any failure returns 500 so Stripe
+  retries.
+- **Licence**: on a live check showing `active` (or `past_due` while
+  Stripe retries the card) the app fetches an Ed25519-signed licence and
+  caches it in `license.json`. Offline, it's trusted only if the
+  signature verifies against `LICENSE_PUBLIC_KEY`, for 7 days from
+  issue.
+- **No password reset yet** — the Supabase version had none in the app
+  either. Sending reset emails needs an email provider; until then a
+  forgotten password is a support request.
 - Session data stays local in `driver_db.json` — nothing is uploaded.
-  The `sessions`/`laps` tables in the schema are currently unused
-  (kept for a possible future opt-in sync).
+- Everything is **Stripe test mode** until Jordan says otherwise. Going
+  live = live keys + a live webhook endpoint; nothing else changes.
+
+The old Supabase project (`supabase/`) is no longer used and can be
+deleted once the Worker is live.

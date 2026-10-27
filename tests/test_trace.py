@@ -94,7 +94,45 @@ def test_live_zone_watcher_and_assess():
 
 
 def test_turn_names():
-    assert trace.turn_name(10, 3390) == "turn ten, Pouhon"     # Spa
-    assert trace.turn_label(10, 3390) == "T10"
-    assert "braking zone" in trace.turn_name(10, 5900)          # unmapped gap
+    assert trace.turn_name(10, 3740) == "turn ten, Pouhon"     # Spa
+    assert trace.turn_label(10, 3740) == "T10"
+    assert trace.turn_name(7, 4930) == "turn fifteen, Stowe"   # Silverstone
+    assert trace.turn_name(5, 1170) == "turn six, the hairpin"  # Monaco
+    assert "braking zone" in trace.turn_name(10, 5500)          # unmapped gap
     assert trace.turn_label(99, 2100) == "2.1k"                 # unknown track
+
+
+def test_compact_thins_by_distance_and_keeps_time():
+    t = LapTrace()
+    for i in range(400):                       # a sample every 2.5 m
+        t.add(i * 2.5, 200 + i % 7, 0.5, 0.25, time_ms=i * 40)
+    t.lap_time_ms = 16_000
+    c = t.compact(step_m=10.0)
+    assert c["lapMs"] == 16_000
+    assert len(c["dist"]) == 100
+    assert all(b - a >= 10.0 for a, b in zip(c["dist"], c["dist"][1:]))
+    assert c["throttle"][0] == 50 and c["brake"][0] == 25   # whole percent
+    assert c["time"][:3] == [0, 160, 320]
+    assert len({len(c[k]) for k in ("dist", "speed", "throttle", "brake", "time")}) == 1
+
+
+def test_compact_empty_and_untimed():
+    assert LapTrace().compact() is None
+    t = LapTrace()
+    t.add(0, 100, 1.0, 0.0)                    # time is optional
+    assert t.compact()["time"] == [None]
+
+
+def test_older_layouts_are_picked_by_lap_length():
+    # Singapore: turn 18 sits ~4.24 km in on the old layout and ~4.68 km
+    # on the 2023 one, so the reported length decides which turn it is.
+    trace.set_track_length(12, 5063)
+    assert trace.turn_label(12, 4160) == "T18"
+    trace.set_track_length(12, 4940)
+    assert trace.turn_label(12, 4600) == "T18"
+    assert trace.turn_label(12, 4160) != "T18"
+    # Catalunya's two layouts are only 18 m apart.
+    trace.set_track_length(4, 4657)
+    assert trace._corners(4) is trace.TRACK_CORNERS[4]
+    trace.set_track_length(4, 4675)
+    assert trace._corners(4) is trace.LAYOUT_VARIANTS[4][0][1]

@@ -6,6 +6,7 @@ spec-exact UDP packets built from the same structs main.py parses.
 
   python3 sim.py --speed 20        # 20x time compression (default)
   python3 sim.py --port 20777
+  python3 sim.py --game 22         # send F1 22 (packet format 2022) bytes
 """
 import argparse
 import random
@@ -16,6 +17,10 @@ import time
 import packets
 
 SESSION_UID = random.getrandbits(63) or 1  # fresh session per run, like the real game
+# Silverstone, as the Session packet says. Distance covers the whole lap at
+# each lap's own pace, so a quicker lap reaches every metre sooner — which is
+# what the dashboard's distance-based live delta measures.
+TRACK_LENGTH_M = 5891.0
 PLAYER_IDX = 3  # non-zero so per-car offset arithmetic is actually exercised
 
 # Scripted sector times per lap, seconds.
@@ -74,7 +79,7 @@ def lap_data_packet(session_time, frame, lap_num, sector0, current_ms,
 def session_packet(session_time, frame, session_type=1,
                    yellow_zones=0, sc_status=0) -> bytes:
     lead = packets.SESSION_LEAD.pack(
-        1, 32, 24, 0, 5891,
+        1, 32, 24, 0, int(TRACK_LENGTH_M),
         session_type,   # 1 = Practice 1, 15 = Race
         7,   # track = Silverstone
         0, 2400, 3600, 80,
@@ -160,6 +165,79 @@ def session_history_packet(session_time, frame, completed) -> bytes:
     return header(packets.SESSION_HISTORY, session_time, frame) + pre + entries + stints
 
 
+# --- F1 22 (packet format 2022) -------------------------------------------
+# Written out from EA's "Data Output from F1 22" spec rather than borrowed
+# from formats.py, so a sim run cross-checks the app's 2022 decoder. Each
+# F1 25 packet built above is re-encoded field by field.
+
+HEADER_22 = struct.Struct("<HBBBBQfIBB")             # 24 bytes
+LAP_22 = struct.Struct("<IIHHfff14BHHB")             # 43 bytes per car
+STATUS_22 = struct.Struct("<BBBBBfffHHBBHBBBbfBfffB")  # 47 bytes per car
+DAMAGE_22, TELEMETRY_22 = 42, 60
+LAP_HISTORY_22 = struct.Struct("<IHHHB")             # 11 bytes per lap
+SIZES_22 = {1: 632, 2: 972, 3: 40, 6: 1347, 7: 1058, 10: 948, 11: 1155}
+
+
+def to_f1_22(pkt: bytes) -> bytes | None:
+    """The same facts as an F1 25 packet, in F1 22's bytes (None for the
+    packets F1 22 never sends)."""
+    h = packets.parse_header(pkt)
+    pid, hs = h.packet_id, packets.HEADER.size
+    head = HEADER_22.pack(2022, 1, 19, 1, pid, h.session_uid, h.session_time,
+                          h.frame_identifier, h.player_car_index, 255)
+
+    def cars(stride, encode):
+        out = bytearray(packets.NUM_CARS * stride)
+        out[PLAYER_IDX * stride:(PLAYER_IDX + 1) * stride] = encode()
+        return bytes(out)
+
+    if pid == packets.LAP_DATA:
+        v = packets.parse_lap_data(pkt, PLAYER_IDX)
+        body = cars(LAP_22.size, lambda: LAP_22.pack(
+            v.last_lap_time_ms, v.current_lap_time_ms, v.sector1_ms,
+            v.sector2_ms, v.lap_distance, v.total_distance,
+            v.safety_car_delta, v.car_position, v.current_lap_num,
+            v.pit_status, v.num_pit_stops, v.sector, v.current_lap_invalid,
+            v.penalties, v.total_warnings, v.num_unserved_drive_through_pens,
+            v.num_unserved_stop_go_pens, v.grid_position, v.driver_status,
+            v.result_status, v.pit_lane_timer_active,
+            v.pit_lane_time_in_lane_ms, v.pit_stop_timer_ms,
+            v.pit_stop_should_serve_pen)) + b"\xff\xff"
+    elif pid == packets.CAR_STATUS:
+        v = packets.parse_car_status(pkt, PLAYER_IDX)
+        body = cars(STATUS_22.size, lambda: STATUS_22.pack(
+            *v[:17], v.ers_store_energy, v.ers_deploy_mode,
+            v.ers_harvested_this_lap_mguk, v.ers_harvested_this_lap_mguh,
+            v.ers_deployed_this_lap, v.network_paused))
+    elif pid == packets.CAR_DAMAGE:
+        wear = packets.parse_tyre_wear(pkt, PLAYER_IDX)
+        body = cars(DAMAGE_22, lambda: packets.DAMAGE_LEAD.pack(*wear)
+                    + bytes(DAMAGE_22 - 16))
+    elif pid == packets.CAR_TELEMETRY:
+        off = hs + PLAYER_IDX * packets.CAR_TELEMETRY_SIZE
+        body = cars(TELEMETRY_22, lambda: pkt[off:off + TELEMETRY_22]) + bytes(3)
+    elif pid == packets.SESSION_HISTORY:
+        sh = packets.parse_session_history(pkt)
+        laps = b"".join(LAP_HISTORY_22.pack(l.lap_time_ms, l.sector1_ms,
+                                            l.sector2_ms, l.sector3_ms,
+                                            l.valid_flags) for l in sh.laps)
+        laps += bytes((packets.MAX_HISTORY_LAPS - len(sh.laps)) * LAP_HISTORY_22.size)
+        body = (packets.SH_PREAMBLE.pack(*sh[:7]) + laps
+                + pkt[-24:])                          # tyre stints unchanged
+    elif pid in (packets.SESSION, packets.EVENT):
+        # Same leading layout in both years; F1 22 sessions are shorter
+        # and number Practice 1 as 1 and Race as 10.
+        body = bytearray(pkt[hs:hs + SIZES_22[pid] - HEADER_22.size])
+        if pid == packets.SESSION and body[6] == 15:
+            body[6] = 10
+        body = bytes(body)
+    else:
+        return None                                   # e.g. Time Trial (F1 24+)
+    out = head + body
+    assert len(out) == SIZES_22[pid], (pid, len(out))
+    return out
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--host", default="127.0.0.1")
@@ -172,11 +250,23 @@ def main() -> None:
                         help="simulate Time Trial with a rival ghost (1:41.0)")
     parser.add_argument("--flags", action="store_true",
                         help="script a yellow, a safety car, a red flag and the chequered flag")
+    parser.add_argument("--game", type=int, choices=(22, 25), default=25,
+                        help="which game's packet format to send")
     args = parser.parse_args()
+    if args.game == 22 and args.rival:
+        parser.error("F1 22 has no Time Trial packet; --rival needs --game 25")
     session_type = 15 if args.race else (18 if args.rival else 1)
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    raw = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     target = (args.host, args.port)
+
+    class _Sock:
+        def sendto(self, pkt, addr):
+            if args.game == 22:
+                pkt = to_f1_22(pkt)
+            if pkt is not None:
+                raw.sendto(pkt, addr)
+    sock = _Sock()
     for name, size in [("lap data", len(lap_data_packet(0, 0, 1, 0, 0, 0, 0, 0, 0.0))),
                        ("car status", len(car_status_packet(0, 0, 0, 25.0))),
                        ("telemetry", len(telemetry_packet(0, 0, 280))),
@@ -214,7 +304,8 @@ def main() -> None:
             gap = max(600, 2600 - 500 * lap_idx) if args.race else 0
             sock.sendto(lap_data_packet(sim_t, frame, lap_num, sector0,
                                         int(t * 1000), s1_ms, s2_ms,
-                                        last_lap_ms, t * 51.0, float(trap),
+                                        last_lap_ms, t / bounds[2] * TRACK_LENGTH_M,
+                                        float(trap),
                                         position, gap), target)
             throttle, brake, speed = driving_sample(t, top_speed, flat_frac)
             sock.sendto(telemetry_packet(sim_t, frame, speed, throttle, brake), target)

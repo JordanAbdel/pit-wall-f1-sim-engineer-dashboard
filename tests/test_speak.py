@@ -56,6 +56,7 @@ def tts(monkeypatch):
     import threading
     t = speak.KokoroTTS.__new__(speak.KokoroTTS)
     t.voice, t.speed = "bm_lewis", 1.0
+    t.radio_fx = False
     t._kokoro = StubKokoro()
     t._init_lanes()  # queue state only — no worker threads
     t._precache = ()
@@ -330,3 +331,83 @@ def test_stale_line_registering_a_player_is_cut_off(tts):
     proc = Proc()
     tts._register(proc)
     assert proc.terminated
+
+
+# ---- team radio, delivery styles and the output device ----
+
+import persona  # noqa: E402
+
+
+class SpeedKokoro(StubKokoro):
+    def __init__(self):
+        super().__init__()
+        self.speeds = []
+
+    def create(self, text, voice=None, speed=None, lang=None):
+        self.speeds.append(speed)
+        return super().create(text, voice=voice, speed=speed, lang=lang)
+
+
+def test_style_sets_synthesis_speed(tts, player):
+    tts._kokoro = SpeedKokoro()
+    tts._speak(persona.Line("Box this lap.", "urgent"))
+    tts._speak("Box this lap.")
+    assert tts._kokoro.speeds[0] > tts.speed
+    assert tts._kokoro.speeds[1] == tts.speed
+
+
+def test_say_carries_style_through_the_queue(tts):
+    tts.say("Safety car's out.", priority=True)
+    tts.say("Lovely lap.", style="excited")
+    assert tts._lanes[speak.PRIORITY][0].style == "urgent"
+    assert tts._lanes[speak.ROUTINE][0].style == "excited"
+
+
+def test_streamed_line_is_one_transmission(tts, player, monkeypatch):
+    """Press on the first sentence, release on the last — not a click and
+    a burst of static between every sentence."""
+    import radio
+    keys = []
+
+    def spy(samples, sr, rng=None, key_up=True, key_down=True):
+        keys.append((key_up, key_down))
+        return samples
+
+    monkeypatch.setattr(radio, "transmission", spy)
+    tts.radio_fx = True
+    tts._speak(COACHING)
+    assert keys == [(True, False), (False, False), (False, True)]
+    keys.clear()
+    tts._speak("Box this lap.")
+    assert keys == [(True, True)]
+
+
+def test_radio_fx_shapes_the_wav(tts, player):
+    import wave
+    tts.radio_fx = True
+    path = tts._synth_wav("Box this lap.")
+    with wave.open(path) as w:
+        frames = w.getnframes()
+    import os
+    os.remove(path)
+    assert frames > 100 + 24_000 * 0.15  # pre-roll + squelch tail added
+
+
+def test_resolve_device_matches_names(monkeypatch):
+    monkeypatch.setattr(speak, "output_devices",
+                        lambda: [(2, "MacBook Pro Speakers"), (7, "BlackHole 2ch")])
+    assert speak.resolve_device("BlackHole 2ch") == 7
+    assert speak.resolve_device("blackhole") == 7
+    assert speak.resolve_device("nope") is None
+    assert speak.resolve_device("") is None
+
+
+def test_device_playback_failure_falls_back_to_default(monkeypatch, player):
+    monkeypatch.setattr(speak, "_OUTPUT_DEVICE", 7)
+
+    def broken(path, device):
+        raise RuntimeError("device vanished")
+
+    monkeypatch.setattr(speak, "_DevicePlayback", broken)
+    speak._play("/tmp/x.wav")
+    assert player.paths == ["/tmp/x.wav"]

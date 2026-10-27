@@ -16,6 +16,11 @@ IS_FROZEN = bool(getattr(sys, "frozen", False))
 BUNDLE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 APP_DIR = (Path(sys.executable).resolve().parent if IS_FROZEN
           else Path(__file__).resolve().parent)
+# The Mac .app sets PITWALL_HOME (~/Library/Application Support/PitWall):
+# state can't live inside a signed, possibly read-only app bundle.
+if os.environ.get("PITWALL_HOME"):
+    APP_DIR = Path(os.environ["PITWALL_HOME"]).expanduser()
+    APP_DIR.mkdir(parents=True, exist_ok=True)
 
 # Load KEY=VALUE pairs from .env (real environment wins). This is where the
 # Supabase keys go — see SETUP_BILLING.md. APP_DIR/.env is the dev override;
@@ -29,10 +34,14 @@ for _env_file in (APP_DIR / ".env", BUNDLE_DIR / ".env"):
                 _k, _, _v = _line.partition("=")
                 os.environ.setdefault(_k.strip(), _v.strip())
 
-# Cloud backend (Supabase). Absent -> LOCAL DEV MODE: no auth, no paywall,
-# no cloud persistence — the app behaves like the original personal tool.
+# Licence API (the Cloudflare Worker in cloudflare/). Absent -> LOCAL DEV
+# MODE: no auth, no paywall — the app behaves like the original personal
+# tool. SUPABASE_URL/SUPABASE_ANON_KEY are still honoured for older .env
+# files; the Worker answers the same paths, so either works.
 SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY", "")
+API_URL = (os.environ.get("PITWALL_API_URL", "").rstrip("/")
+           or (SUPABASE_URL if SUPABASE_ANON_KEY else ""))
 # Ed25519 public key (base64, 32 raw bytes) that verifies the server-signed
 # offline licence — see supabase/functions/issue-license. Without it there
 # is no offline grace: the app must reach the licence server to run.
@@ -57,8 +66,21 @@ DASHBOARD_LAN_PORT = 8778
 TTS_ENGINE = "kokoro"
 KOKORO_MODEL = BUNDLE_DIR / "models" / "kokoro-v1.0.onnx"
 KOKORO_VOICES = BUNDLE_DIR / "models" / "voices-v1.0.bin"
-KOKORO_VOICE = "bm_lewis"   # British males: bm_george (Jarvis), bm_fable, bm_lewis, bm_daniel
+KOKORO_VOICE = os.environ.get("PITWALL_VOICE") or "bm_lewis"
+#                           # British males: bm_george (Jarvis), bm_fable, bm_lewis, bm_daniel
 KOKORO_SPEED = 1.08         # slightly brisk — race engineers don't dawdle
+
+# The engineer is heard over team radio (band-limited, compressed, with
+# press-to-talk static — see radio.py). PITWALL_RADIO=0 for the clean voice.
+RADIO_FX = os.environ.get("PITWALL_RADIO", "1").strip().lower() not in ("0", "off", "no", "false")
+
+# What the engineer calls you on the radio, now and then. Blank = no name.
+DRIVER_NAME = os.environ.get("PITWALL_DRIVER_NAME", "").strip()
+
+# Where the engineer's voice plays: blank = the system default output, or
+# (part of) a device name such as "BlackHole 2ch" to send it into a Discord
+# call that reaches the headset on an Xbox. See docs/XBOX_AUDIO.md.
+AUDIO_DEVICE = os.environ.get("PITWALL_AUDIO_DEVICE", "").strip()
 
 # say fallback
 TTS_VOICE = "Daniel"        # British voice; falls back to system default if missing

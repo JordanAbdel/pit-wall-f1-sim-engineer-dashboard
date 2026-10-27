@@ -156,3 +156,17 @@ def test_reset_clears_the_high_water_mark_so_a_new_attempt_records():
     assert rec.samples == []
     rec.add(0.0, 1.0, 1.0)                  # would be refused without a reset
     assert len(rec.samples) == 1
+
+
+def test_a_different_layout_of_the_same_track_gets_its_own_map(tmp_path, monkeypatch):
+    # Singapore: F1 22 drives the 5063 m layout, F1 25 the 4940 m one.
+    monkeypatch.setattr(track_map, "STORE", tmp_path / "maps.json")
+    maps = {}
+    old = track_map.record(maps, 12, oval_lap(), 5063)
+    assert track_map.lookup(maps, 12, 5063) is old
+    assert track_map.lookup(maps, 12, 5060) is old        # same layout
+    assert track_map.lookup(maps, 12, 4940) is None       # not this one
+    new = track_map.record(maps, 12, oval_lap(rx=500.0), 4940)
+    assert new is not old and set(maps) == {"12", "12:4940"}
+    assert track_map.lookup(maps, 12, 4940) is new
+    assert track_map.lookup(maps, 12, None) is old
