@@ -22,8 +22,10 @@ if [ -n "${SIGN_IDENTITY:-}" ]; then
         "DEVELOPMENT_TEAM=${TEAM_ID:?set TEAM_ID with SIGN_IDENTITY}"
         "OTHER_CODE_SIGN_FLAGS=--timestamp")
 fi
+# Clean: Xcode doesn't track the engine files embed_engine.sh copies in,
+# so an incremental build can skip re-signing after a new PyInstaller run.
 xcodebuild -quiet -project "$ROOT/apple/PitWall.xcodeproj" -scheme PitWall \
-  -configuration Release -derivedDataPath "$DD" "${SIGN[@]}" build
+  -configuration Release -derivedDataPath "$DD" "${SIGN[@]}" clean build
 
 rm -rf "$OUT" "$ROOT/dist/PitWall.dmg"
 mkdir -p "$OUT"
