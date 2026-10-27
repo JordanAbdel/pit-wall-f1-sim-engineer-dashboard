@@ -1,0 +1,360 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		378391A99CB9E3F91823DED1 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 826E9822CC194C10CC2A427D /* ContentView.swift */; };
+		736F5268B3FCE53CB0EAE4F8 /* DashboardWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 259C965158E2792BD38D7747 /* DashboardWebView.swift */; };
+		840A294477F91F9E16AAA823 /* Engine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36C161FB00C3ECE9BB135F7B /* Engine.swift */; };
+		BA4330082375A7B9D7F880BA /* PitWallApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 551A3A7BF97E87B71E6DB627 /* PitWallApp.swift */; };
+		C2752B6A165E0FC6E1004133 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 1EEDD0F1BAF5281665E07DEE /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		1EEDD0F1BAF5281665E07DEE /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		1FFC2F0AEDF57E0E7A8AEDF5 /* Engine.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Engine.entitlements; sourceTree = "<group>"; };
+		259C965158E2792BD38D7747 /* DashboardWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardWebView.swift; sourceTree = "<group>"; };
+		36C161FB00C3ECE9BB135F7B /* Engine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Engine.swift; sourceTree = "<group>"; };
+		551A3A7BF97E87B71E6DB627 /* PitWallApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PitWallApp.swift; sourceTree = "<group>"; };
+		5EDB39474DAB306CACBE7F3B /* PitWall.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = PitWall.entitlements; sourceTree = "<group>"; };
+		826E9822CC194C10CC2A427D /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		8EF060CFC8872F4F13086F07 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		D9265B3A8E89FF14681B8568 /* PitWall.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PitWall.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		16E359009DF89A39E1F145CC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				D9265B3A8E89FF14681B8568 /* PitWall.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		74659AFDFC4986065A7113AD = {
+			isa = PBXGroup;
+			children = (
+				ECEBE35CFE9FBB7C63320398 /* PitWallMac */,
+				16E359009DF89A39E1F145CC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		ECEBE35CFE9FBB7C63320398 /* PitWallMac */ = {
+			isa = PBXGroup;
+			children = (
+				1EEDD0F1BAF5281665E07DEE /* Assets.xcassets */,
+				826E9822CC194C10CC2A427D /* ContentView.swift */,
+				259C965158E2792BD38D7747 /* DashboardWebView.swift */,
+				1FFC2F0AEDF57E0E7A8AEDF5 /* Engine.entitlements */,
+				36C161FB00C3ECE9BB135F7B /* Engine.swift */,
+				8EF060CFC8872F4F13086F07 /* Info.plist */,
+				5EDB39474DAB306CACBE7F3B /* PitWall.entitlements */,
+				551A3A7BF97E87B71E6DB627 /* PitWallApp.swift */,
+			);
+			path = PitWallMac;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		F123F54915B631D6E0F5F7D4 /* PitWall */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 6F2F643384484F2221CA47DC /* Build configuration list for PBXNativeTarget "PitWall" */;
+			buildPhases = (
+				802B4CD6A6410050C043E373 /* Sources */,
+				F278A2B28EA08335D1247778 /* Resources */,
+				0E76A5397DC51100FE6E4F67 /* Embed PitWall engine */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = PitWall;
+			packageProductDependencies = (
+			);
+			productName = PitWall;
+			productReference = D9265B3A8E89FF14681B8568 /* PitWall.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		6A1E0EF68F80C1AEA4E6575A /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					F123F54915B631D6E0F5F7D4 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = A74B275BDAB1B10B2D38ADC8 /* Build configuration list for PBXProject "PitWall" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 74659AFDFC4986065A7113AD;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 16E359009DF89A39E1F145CC /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				F123F54915B631D6E0F5F7D4 /* PitWall */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		F278A2B28EA08335D1247778 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C2752B6A165E0FC6E1004133 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		0E76A5397DC51100FE6E4F67 /* Embed PitWall engine */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Embed PitWall engine";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "#!/bin/bash\n# Xcode build phase: copy the PyInstaller engine (dist/PitWall) into\n# PitWall.app/Contents/Resources/PitWall. Release builds must have it;\n# Debug builds without one fall back to the source checkout (Engine.swift).\nset -euo pipefail\nENGINE=\"$SRCROOT/../dist/PitWall\"\nDEST=\"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/PitWall\"\n\nif [ ! -x \"$ENGINE/PitWall\" ]; then\n  if [ \"$CONFIGURATION\" = \"Release\" ]; then\n    echo \"error: $ENGINE/PitWall is missing — build it first:\"\n    echo \"error:   build-venv/bin/python -m PyInstaller --noconfirm --clean PitWall.spec\"\n    exit 1\n  fi\n  echo \"note: no frozen engine in dist/ — this Debug build runs the source checkout\"\n  rm -rf \"$DEST\"\n  exit 0\nfi\n\n# Debug builds run the source checkout even when a frozen engine exists,\n# so code changes show up without re-running PyInstaller.\nif [ \"$CONFIGURATION\" != \"Release\" ]; then\n  rm -rf \"$DEST\"\n  exit 0\nfi\n\nmkdir -p \"$DEST\"\nrsync -a --delete \"$ENGINE/\" \"$DEST/\"\n\n# Notarization needs every Mach-O inside the bundle signed with the\n# hardened runtime by the same identity as the app. Ad-hoc (\"-\") builds\n# keep PyInstaller's own ad-hoc signatures, which is enough to run locally.\nIDENTITY=\"${EXPANDED_CODE_SIGN_IDENTITY:-}\"\nif [ -n \"$IDENTITY\" ] && [ \"$IDENTITY\" != \"-\" ]; then\n  echo \"signing engine with $IDENTITY\"\n  ENT=\"$SRCROOT/PitWallMac/Engine.entitlements\"\n  # Inner files first, then the framework bundles that contain them.\n  find \"$DEST\" -type f -print0 | while IFS= read -r -d '' f; do\n    if file -b \"$f\" | grep -q \"Mach-O\"; then\n      codesign --force --timestamp --options runtime --entitlements \"$ENT\" -s \"$IDENTITY\" \"$f\"\n    fi\n  done\n  find \"$DEST\" -type d -name \"*.framework\" -print0 | while IFS= read -r -d '' fw; do\n    codesign --force --timestamp --options runtime -s \"$IDENTITY\" \"$fw\"\n  done\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		802B4CD6A6410050C043E373 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				378391A99CB9E3F91823DED1 /* ContentView.swift in Sources */,
+				736F5268B3FCE53CB0EAE4F8 /* DashboardWebView.swift in Sources */,
+				840A294477F91F9E16AAA823 /* Engine.swift in Sources */,
+				BA4330082375A7B9D7F880BA /* PitWallApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		24B7040BA7CA140736920917 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		3B03BFB5A878C6966D6048F1 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PitWallMac/PitWall.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = PitWallMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PITWALL_SOURCE_DIR = "$(SRCROOT)/..";
+				PRODUCT_BUNDLE_IDENTIFIER = com.jordanabdel.pitwall;
+				PRODUCT_NAME = PitWall;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		464184687EF92ACA9893760C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		CB78747391EF04ADEE6F0F3E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = PitWallMac/PitWall.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				INFOPLIST_FILE = PitWallMac/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PITWALL_SOURCE_DIR = "";
+				PRODUCT_BUNDLE_IDENTIFIER = com.jordanabdel.pitwall;
+				PRODUCT_NAME = PitWall;
+				SDKROOT = macosx;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		6F2F643384484F2221CA47DC /* Build configuration list for PBXNativeTarget "PitWall" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				3B03BFB5A878C6966D6048F1 /* Debug */,
+				CB78747391EF04ADEE6F0F3E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		A74B275BDAB1B10B2D38ADC8 /* Build configuration list for PBXProject "PitWall" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				464184687EF92ACA9893760C /* Debug */,
+				24B7040BA7CA140736920917 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 6A1E0EF68F80C1AEA4E6575A /* Project object */;
+}

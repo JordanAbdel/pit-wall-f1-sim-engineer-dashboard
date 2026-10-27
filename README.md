@@ -39,6 +39,13 @@ run.
 
 ## Turning it on
 
+**Mac app:** open **PitWall.app** (built from `apple/`, shipped in
+`dist/PitWall.dmg`). It starts the engine and shows the dashboard in its
+own window, with no browser or Terminal. Quitting the app (⌘Q) stops the
+engine and saves the session. See `apple/README.md` to build and sign it.
+
+**From source:**
+
 1. Open Terminal, go to the project folder:
    ```sh
    cd "/Users/jordanabdel/Documents/Claude/VP/race-engineer"
@@ -323,6 +330,7 @@ cloud.py       Supabase auth, billing links, one-shot license check,
 ed25519.py     verify-only Ed25519 for the offline licence
 supabase/      DB schema + Stripe edge functions (see SETUP_BILLING.md)
 sim.py         synthetic packet sender for testing without the Xbox
+apple/         native Mac app (SwiftUI window around the engine + dashboard)
 ```
 
 v1 scope: sector-level deltas only, no mid-lap warnings. See
