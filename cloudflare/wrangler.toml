@@ -12,7 +12,7 @@ preview_urls = false
 compatibility_date = "2025-09-01"
 
 [vars]
-STRIPE_PRICE_ID = "price_1TsEfqJgFMFFcHHDLqTqPw2Z"          # price_… for the $4.99/month plan
+STRIPE_PRICE_ID = "price_1TsFXaJgFMFFcHHD8ZNo7Gbx"          # price_… for the $4.99/month plan
 APP_URL = "http://127.0.0.1:8777"
 TRIAL_DAYS = "0"
 
